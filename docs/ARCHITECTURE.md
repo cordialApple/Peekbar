@@ -47,7 +47,7 @@ Data model (introduced Stage 3, generalized Stage 4):
 ```cpp
 struct Tab {
     std::wstring title;
-    // url: not reliably available via UIA; see §8 upgrade path
+    // url: not reliably available via UIA; see §9 upgrade path
 };
 
 struct TrackedWindow {
@@ -172,7 +172,7 @@ stays visible above the taskbar" behavior.
 ### Risks — where UIA is known to be fragile
 - **Tab titles: yes. Full URLs: no.** UIA exposes only the *active* tab's
   address-bar value; background-tab URLs are not available. This is accepted
-  for Stage 3 and is the trigger for the §8 upgrade path.
+  for Stage 3 and is the trigger for the §9 upgrade path.
 - Chromium's accessibility tree may be inactive until a client queries it;
   first query can be slow. Do all UIA work on a worker thread; debounce.
 - Browser updates can rearrange the automation tree; keep the tab-strip lookup
@@ -313,25 +313,100 @@ the dock already owns real shell-level screen space, and the native messaging
 host is a plain executable. Electron would add a Chromium runtime without
 adding capability.
 
-## 10. Repository layout
+## 10. Observability — decoupled shell profiling
+
+### Requirements
+- Performance of the shell must be observable (message-loop responsiveness,
+  AppBar negotiation cost, paint time, UIA snapshot duration, event rates).
+- **Zero bloat in the shell.** No logging frameworks, no log files, no
+  background telemetry threads, no metrics UI inside the shell.
+- **Decoupled by design.** The profiler is **separate software** — its own
+  executable, its own build target, never bundled or shipped with the shell.
+  The shell runs identically whether or not the profiler exists on the
+  machine.
+
+### Design: ETW (TraceLogging) producer + separate consumer
+The shell instruments itself with **TraceLogging** (Event Tracing for Windows;
+header-only, ships in the Windows SDK — no new dependencies):
+
+- Provider name `BrowserShellOs.Perf` (GUID derived from the name per
+  TraceLogging convention). A thin wrapper `src/Trace.h` (a few dozen lines)
+  exposes `TRACE_SCOPE(...)` / `TRACE_EVENT(...)` macros for call sites.
+- When **no trace session is listening, events are discarded inside the
+  provider at near-zero cost** — this mechanism is what makes "observability
+  without bloat" possible. The shell never writes telemetry files and never
+  spins telemetry threads.
+
+Instrumented events (grows with the stages):
+
+| Event | Fields | Introduced with |
+|---|---|---|
+| `AppBarNegotiate` | duration_us, edge, resulting rect | Stage 1 |
+| `Paint` | duration_us, dirty w×h | Stage 1 |
+| `WinEventCallback` | event id, hwnd (rate observable) | Stage 2 |
+| `UiaSnapshot` | duration_us, hwnd, tab_count, hr | Stage 3 |
+| `StoreUpdate` | tracked_windows, total_tabs | Stages 3–4 |
+| `LauncherAction` | action type, duration_us, hr | Stage 5 |
+
+### The profiler: `shell_profiler` (separate software)
+A standalone console tool under `profiler/` (own CMake target; may later move
+to its own repository — nothing binds it to the shell's build):
+
+- Starts a real-time ETW session (`StartTraceW` + `EnableTraceEx2`), consumes
+  via `OpenTraceW`/`ProcessTrace`, decodes the self-describing TraceLogging
+  events with the TDH APIs.
+- Live console table: event rates and p50/p95/max durations per event type;
+  optional CSV export for offline analysis.
+- Additionally samples the shell process's CPU time, working set, and handle
+  count (`GetProcessTimes`, `GetProcessMemoryInfo`) — the same numbers Task
+  Manager shows — correlated against the ETW timeline.
+- Real-time ETW sessions require elevation or membership in the *Performance
+  Log Users* group (standard ETW rule; documented, not worked around).
+
+The **only contract** between the two programs is the provider name and the
+event/field names in the table above — no shared code, no shared headers, no
+IPC. Either side can be rebuilt or deleted without touching the other.
+
+### Task Manager / PerfMon
+The shell is an ordinary process, so Task Manager visibility (CPU, memory) is
+free — Stage 2's "~0% idle CPU" acceptance test is verified there. Publishing
+custom **PerfMon V2 counters** is a possible later add-on if always-on
+counters are wanted without running the profiler; explicitly out of scope for
+the initial profiler workstream.
+
+### Scheduling
+Instrumentation (`Trace.h` + the Stage-1 events) and the profiler tool form a
+**parallel workstream that begins only after Stage 1 is accepted** — there is
+nothing worth measuring before the dock exists. Step breakdown:
+`docs/plans/profiler.md`.
+
+## 11. Repository layout
 
 ```
 README.md
-CLAUDE.md                   working rules + Stage 1 step breakdown for AI-assisted dev
-docs/ARCHITECTURE.md        ← this document
+CLAUDE.md                   working rules for AI-assisted dev (read first)
+docs/
+  HANDOFF.md                session entry point: project state + doc map
+  ARCHITECTURE.md           ← this document
+  plans/
+    stage-1.md … stage-5.md per-stage step breakdowns with checkpoints
+    profiler.md             observability workstream (post-Stage-1)
 CMakeLists.txt              (lands with Stage 1)
 src/
   main.cpp                  entry point, DPI setup, message loop
   DockWindow.{h,cpp}        Stage 1
+  Trace.h                   TraceLogging wrapper (profiler workstream, P.1)
   WindowMonitor.{h,cpp}     Stage 2
   TabReader.{h,cpp}         Stage 3 (UIA implementation)
   Store.{h,cpp}             Stage 3
   Renderer.{h,cpp}          Stages 2–4
   Launcher.{h,cpp}          Stage 5
   TaskbarOverlayWindow.{h,cpp}  Stage 5b
+profiler/                   shell_profiler — separate tool, never bundled
+  main.cpp, EtwSession.{h,cpp}, MetricsView.{h,cpp}
 ```
 
-## 11. Per-stage verification (run on Windows)
+## 12. Per-stage verification (run on Windows)
 
 | Stage | Test |
 |---|---|
@@ -341,8 +416,9 @@ src/
 | 4 | Open 3 browser windows (mixed Chrome + Edge), minimize all → 3 staggered cards. Hover → fan. Click card #2 → exactly that window restores. |
 | 5a | Configure a URL button + a shortcut button → both render in the dock; clicks perform the actions; restart the tool → buttons persist. |
 | 5b | Buttons appear in the taskbar's empty region; open 15 apps → overlay yields space to the growing task list; click empty taskbar space outside a button → normal taskbar behavior. |
+| P | Run shell + `shell_profiler` → live event table shows `AppBarNegotiate`/`Paint` timings; kill profiler → shell unaffected; delete profiler binary → shell runs identically. |
 
-## 12. References
+## 13. References
 
 - [Using Application Desktop Toolbars — Microsoft Learn](https://learn.microsoft.com/en-us/windows/win32/shell/application-desktop-toolbars)
 - [`SHAppBarMessage` — Microsoft Learn](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shappbarmessage)

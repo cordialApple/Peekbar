@@ -28,13 +28,17 @@ aggregate the tabs of multiple minimized windows.
 | **3** | Track one browser's tabs; keep them on-screen in the dock after the window is minimized. |
 | **4** | Track multiple browsers' tabs; aggregate minimized windows as a staggered card stack. |
 | **5** | Automation buttons in the taskbar's empty space: pill- or icon-style launchers for a website, a designated website, or a bundled automation shortcut — persisted with the shell. |
+| **P** | *(parallel, after Stage 1)* `shell_profiler`: a separate, never-bundled tool observing the shell's performance over ETW — zero telemetry bloat in the shell itself. |
 
 Full technical detail, per-stage APIs, acceptance criteria, and risks:
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-Stage 1 is broken down into ordered implementation steps in
-[`CLAUDE.md`](CLAUDE.md), which also carries the working rules for AI-assisted
-development on this repo.
+## Working on this repo
+
+- **Start here every session:** [`docs/HANDOFF.md`](docs/HANDOFF.md) — current
+  state, next action, doc map.
+- Working rules for AI-assisted development: [`CLAUDE.md`](CLAUDE.md).
+- Per-stage step breakdowns with checkpoints: [`docs/plans/`](docs/plans/).
 
 ## Building
 

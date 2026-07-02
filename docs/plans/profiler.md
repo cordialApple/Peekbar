@@ -1,0 +1,67 @@
+# Profiler workstream plan — decoupled observability
+
+Spec: `docs/ARCHITECTURE.md` §10. Acceptance: §12 row P.
+**Unlocks after Stage 1 is accepted.** Runs in parallel with stages 2–5;
+each stage adds its events per the §10 event table.
+
+Non-negotiable (hard rule 8): the shell gets ONLY the TraceLogging wrapper
+and call sites — no files, no threads, no frameworks. `shell_profiler` is a
+separate executable/target; no shared code with the shell. The contract is
+the provider name `BrowserShellOs.Perf` and the event/field names in §10.
+
+## Step P.1 — Shell-side instrumentation (touches shell, minimally)
+
+**Build:** `src/Trace.h`: `TRACELOGGING_DEFINE_PROVIDER` for
+`BrowserShellOs.Perf`, register/unregister in `wWinMain`, and two macros —
+`TRACE_EVENT(name, fields...)` and `TRACE_SCOPE(name)` (RAII QPC timer that
+emits duration_us on scope exit). Instrument Stage-1 sites: AppBar
+negotiation (`AppBarNegotiate`) and `WM_PAINT` (`Paint`).
+
+**Checkpoint:** shell builds and behaves identically; capture with
+`wpr -start GeneralProfile` or `traceview`/`tracelog` shows the two events
+firing. Binary size delta and idle CPU delta ≈ 0.
+
+## Step P.2 — Profiler skeleton: real-time ETW session
+
+**Build:** `profiler/` with its own CMake target `shell_profiler` (console,
+links `advapi32 tdh`). `EtwSession.{h,cpp}`: `StartTraceW` (real-time mode) +
+`EnableTraceEx2` on the provider by name-derived GUID, `OpenTraceW` +
+`ProcessTrace` on a consumer thread, TDH decode (`TdhGetEventInformation`)
+of the self-describing events. Print raw decoded events to stdout. Handle
+the already-running-session case (`ERROR_ALREADY_EXISTS` → stop stale
+session and retry). Document the elevation / Performance Log Users
+requirement in `profiler/README.md`.
+
+**Checkpoint:** run shell + `shell_profiler` → decoded `AppBarNegotiate` /
+`Paint` events stream live. Ctrl+C stops the session cleanly
+(`ControlTraceW(EVENT_TRACE_CONTROL_STOP)` — never leak the session).
+
+## Step P.3 — Metrics view
+
+**Build:** `MetricsView.{h,cpp}`: aggregate per event name — count, rate/s,
+p50/p95/max of duration_us; redraw a console table every second. Add process
+sampling of the shell (find PID by image name): CPU %, working set, handle
+count via `GetProcessTimes`/`GetProcessMemoryInfo`, shown alongside.
+
+**Checkpoint:** drag the taskbar / force repaints → `Paint` p95 visibly
+moves; numbers match Task Manager's for the process row.
+
+## Step P.4 — CSV export + acceptance
+
+**Build:** `--csv <path>` flag: append one row per aggregation interval.
+Run §12 row P end-to-end.
+
+**Checkpoint:** §12 row P — including: delete `shell_profiler.exe` → shell
+runs identically (the decoupling proof).
+
+## Ongoing per-stage duty
+
+When implementing stages 2–5, add that stage's events from the §10 table as
+part of the stage's final step (one-line call sites only). The profiler needs
+no changes — TraceLogging events are self-describing.
+
+## Definition of done
+
+- [ ] §12 row P passes.
+- [ ] Shell contains no observability code beyond `Trace.h` + call sites.
+- [ ] Profiler builds/runs with the shell target disabled, and vice versa.
