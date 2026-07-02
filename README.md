@@ -1,20 +1,46 @@
 # browser_shell_os
 
-Windows shell-layer experiment. Goal: when browser windows minimize, they no
-longer vanish to the taskbar — instead they collapse into a **dock strip above
-the taskbar** as layered, interactive "session stacks."
+A native Windows shell tool that keeps your browser's tabs visible when you
+minimize the window.
 
-## The idea
+Today, minimizing a browser window collapses it into a flat taskbar button and
+everything you were looking at disappears. This project builds a **dock strip
+directly above the Windows taskbar** where minimized browser windows leave their
+tab information behind — eventually as staggered, multilayered cards that
+aggregate the tabs of multiple minimized windows.
 
-- Persistent always-on-top strip sits just above the Windows taskbar.
-- Minimized browser windows become stacked cards (not flat taskbar buttons).
-- Multiple windows group into "session clusters" (Work / Videos / Research).
-- Hover a stack → cards slide up like a deck; click → window comes forward.
-- Uses open taskbar real estate + the space directly above the toolbar.
+## Stack
 
-Think: macOS Mission Control + Windows taskbar + cross-window tab manager,
-merged into one layer.
+- **C++17 / Win32** — a real shell tool, no frameworks, no Electron, no web view.
+  The dock registers as an application desktop toolbar (AppBar) via
+  `SHAppBarMessage`, so it reserves its strip of screen at the shell level.
+- **UI Automation** for reading tab titles (self-contained; no browser extension
+  required to start). A browser extension + native messaging host is the
+  documented upgrade path if exact URLs are needed later.
+- Target: Windows 10/11 x64, per-monitor DPI aware.
 
-## Status
+## Roadmap (iterative, minimum functionality per stage)
 
-Planning stage. Architecture + milestones to come.
+| Stage | Deliverable |
+|---|---|
+| **1** | Hello-world shell tool: an AppBar dock anchored above the taskbar that reserves its own screen strip. *(The hardest stage — all native plumbing lives here.)* |
+| **2** | Detect that a browser is open and perform a simple action in the dock. |
+| **3** | Track one browser's tabs; keep them on-screen in the dock after the window is minimized. |
+| **4** | Track multiple browsers' tabs; aggregate minimized windows as a staggered card stack. |
+
+Full technical detail, per-stage APIs, acceptance criteria, and risks:
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+## Building
+
+Implementation begins with Stage 1. Prerequisites (when code lands):
+
+- Windows 10 or 11, x64
+- Visual Studio 2022 (Desktop development with C++) or Build Tools + CMake ≥ 3.20
+
+```
+cmake -B build -G "Visual Studio 17 2022"
+cmake --build build --config Release
+```
+
+Note: this is Windows-native code; it does not build or run on Linux/macOS.
