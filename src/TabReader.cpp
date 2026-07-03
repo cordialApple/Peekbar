@@ -64,6 +64,7 @@ std::vector<Tab> SnapshotTabs(IUIAutomation* automation, HWND hwnd)
     ComPtr<IUIAutomationCacheRequest> cacheReq;
     if (FAILED(automation->CreateCacheRequest(&cacheReq))) return {};
     cacheReq->AddProperty(UIA_NamePropertyId);
+    cacheReq->AddProperty(UIA_SelectionItemIsSelectedPropertyId);
 
     VARIANT vt = {};
     vt.vt   = VT_I4;
@@ -104,6 +105,7 @@ std::vector<Tab> SnapshotTabs(IUIAutomation* automation, HWND hwnd)
 
         std::vector<Tab> tabs;
         tabs.reserve(count);
+        bool sawActive = false;
         for (int i = 0; i < count; ++i)
         {
             ComPtr<IUIAutomationElement> item;
@@ -113,7 +115,17 @@ std::vector<Tab> SnapshotTabs(IUIAutomation* automation, HWND hwnd)
             {
                 std::wstring title = CleanTabTitle(name);
                 if (!title.empty())
-                    tabs.push_back({ std::move(title) });
+                {
+                    bool active = false;
+                    VARIANT sel = {};
+                    if (SUCCEEDED(item->GetCachedPropertyValue(
+                            UIA_SelectionItemIsSelectedPropertyId, &sel)))
+                        active = (sel.vt == VT_BOOL && sel.boolVal != VARIANT_FALSE);
+                    VariantClear(&sel);
+                    if (active && sawActive) active = false;  // one active tab max
+                    sawActive = sawActive || active;
+                    tabs.push_back({ std::move(title), active });
+                }
                 SysFreeString(name);
             }
         }

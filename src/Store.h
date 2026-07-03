@@ -6,6 +6,7 @@
 
 struct Tab {
     std::wstring title;
+    bool         active = false;
 };
 
 struct TrackedWindow {

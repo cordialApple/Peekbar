@@ -7,7 +7,9 @@ namespace
     constexpr COLORREF kBgColor      = RGB(28,  28,  30);
     constexpr COLORREF kCardBg       = RGB(44,  44,  48);
     constexpr COLORREF kChipBg       = RGB(60,  60,  66);
+    constexpr COLORREF kChipActiveBg = RGB(38,  79,  120);
     constexpr COLORREF kTextPrimary  = RGB(220, 220, 220);
+    constexpr COLORREF kTextActive   = RGB(240, 244, 250);
     constexpr COLORREF kTextSecond   = RGB(170, 170, 176);
 
     int ScalePx(int px, int dpiI) { return MulDiv(px, dpiI, 96); }
@@ -83,6 +85,16 @@ namespace
         const int minChipW = ScalePx(110, dpiI);  // legible width; +N absorbs the rest
         const int chipPad  = ScalePx(6, dpiI);
 
+        // Active tab first so it's never buried in the "+N" overflow.
+        std::vector<int> order;
+        order.reserve(n);
+        int activeIdx = -1;
+        for (int i = 0; i < n; ++i)
+            if (win.tabs[i].active) { activeIdx = i; break; }
+        if (activeIdx >= 0) order.push_back(activeIdx);
+        for (int i = 0; i < n; ++i)
+            if (i != activeIdx) order.push_back(i);
+
         if (n > 0 && rowW > gap)
         {
             // Fit as many chips as possible at min width; reserve a "+N" slot only
@@ -110,16 +122,17 @@ namespace
             int x = rowRc.left;
             for (int i = 0; i < visible; ++i)
             {
+                const Tab& tab = win.tabs[order[i]];
                 const int right = (i == visible - 1) ? rowRc.left + chipArea : x + chipW;
                 RECT chip = { x, rowRc.top, right, rowRc.bottom };
-                HBRUSH chipBrush = CreateSolidBrush(kChipBg);
+                HBRUSH chipBrush = CreateSolidBrush(tab.active ? kChipActiveBg : kChipBg);
                 FillRect(hdc, &chip, chipBrush);
                 DeleteObject(chipBrush);
 
                 RECT txt = { chip.left + chipPad, chip.top,
                              chip.right - chipPad, chip.bottom };
-                SetTextColor(hdc, kTextPrimary);
-                DrawTextW(hdc, win.tabs[i].title.c_str(), -1, &txt,
+                SetTextColor(hdc, tab.active ? kTextActive : kTextPrimary);
+                DrawTextW(hdc, tab.title.c_str(), -1, &txt,
                           DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
                 x += chipW + gap;
             }
