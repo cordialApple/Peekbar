@@ -8,6 +8,16 @@ using Microsoft::WRL::ComPtr;
 namespace
 {
 
+static bool IsWebContentTabName(const wchar_t* name)
+{
+    if (!name) return false;
+    const wchar_t* p = name;
+    if (p[0] != L't' || p[1] != L'a' || p[2] != L'b' || p[3] != L'-') return false;
+    for (p += 4; *p; ++p)
+        if (*p < L'0' || *p > L'9') return false;
+    return p > name + 4;
+}
+
 std::vector<Tab> SnapshotTabs(IUIAutomation* automation, HWND hwnd)
 {
     ComPtr<IUIAutomationElement> elem;
@@ -24,37 +34,65 @@ std::vector<Tab> SnapshotTabs(IUIAutomation* automation, HWND hwnd)
     if (FAILED(automation->CreatePropertyCondition(UIA_ControlTypePropertyId, vt, &tabCtrlCond)))
         return {};
 
-    ComPtr<IUIAutomationElement> tabCtrl;
-    if (FAILED(elem->FindFirst(TreeScope_Descendants, tabCtrlCond.Get(), &tabCtrl)) || !tabCtrl)
+    // FindAll so we can skip web-content tab panels (e.g. YouTube's <div role="tablist">
+    // whose items get UIA names like "tab-0", "tab-1"). Browser chrome tabs come first
+    // in tree order on most pages but not all.
+    ComPtr<IUIAutomationElementArray> tabCtrls;
+    if (FAILED(elem->FindAll(TreeScope_Descendants, tabCtrlCond.Get(), &tabCtrls)) || !tabCtrls)
         return {};
+
+    int ctrlCount = 0;
+    tabCtrls->get_Length(&ctrlCount);
 
     vt.lVal = UIA_TabItemControlTypeId;
     ComPtr<IUIAutomationCondition> tabItemCond;
     if (FAILED(automation->CreatePropertyCondition(UIA_ControlTypePropertyId, vt, &tabItemCond)))
         return {};
 
-    ComPtr<IUIAutomationElementArray> items;
-    if (FAILED(tabCtrl->FindAllBuildCache(TreeScope_Children, tabItemCond.Get(), cacheReq.Get(), &items))
-            || !items)
-        return {};
-
-    int count = 0;
-    items->get_Length(&count);
-
-    std::vector<Tab> tabs;
-    tabs.reserve(count);
-    for (int i = 0; i < count; ++i)
+    for (int ci = 0; ci < ctrlCount; ++ci)
     {
-        ComPtr<IUIAutomationElement> item;
-        if (FAILED(items->GetElement(i, &item)) || !item) continue;
-        BSTR name = nullptr;
-        if (SUCCEEDED(item->get_CachedName(&name)) && name)
+        ComPtr<IUIAutomationElement> tabCtrl;
+        if (FAILED(tabCtrls->GetElement(ci, &tabCtrl)) || !tabCtrl) continue;
+
+        ComPtr<IUIAutomationElementArray> items;
+        if (FAILED(tabCtrl->FindAllBuildCache(TreeScope_Children, tabItemCond.Get(),
+                                               cacheReq.Get(), &items)) || !items)
+            continue;
+
+        int count = 0;
+        items->get_Length(&count);
+        if (count == 0) continue;
+
+        // Check first item: if it looks like "tab-<digits>", this is web content.
+        ComPtr<IUIAutomationElement> first;
+        if (SUCCEEDED(items->GetElement(0, &first)) && first)
         {
-            tabs.push_back({ std::wstring(name) });
-            SysFreeString(name);
+            BSTR probe = nullptr;
+            if (SUCCEEDED(first->get_CachedName(&probe)))
+            {
+                bool isWeb = IsWebContentTabName(probe);
+                SysFreeString(probe);
+                if (isWeb) continue;
+            }
         }
+
+        std::vector<Tab> tabs;
+        tabs.reserve(count);
+        for (int i = 0; i < count; ++i)
+        {
+            ComPtr<IUIAutomationElement> item;
+            if (FAILED(items->GetElement(i, &item)) || !item) continue;
+            BSTR name = nullptr;
+            if (SUCCEEDED(item->get_CachedName(&name)) && name)
+            {
+                tabs.push_back({ std::wstring(name) });
+                SysFreeString(name);
+            }
+        }
+        if (!tabs.empty())
+            return tabs;
     }
-    return tabs;
+    return {};
 }
 
 } // namespace
@@ -107,16 +145,20 @@ void TabReader::WorkerLoop()
             m_queue.pop_front();
         }
 
-        std::vector<Tab> tabs;
-        if (automation)
-            tabs = SnapshotTabs(automation.Get(), target);
+        try
+        {
+            std::vector<Tab> tabs;
+            if (automation)
+                tabs = SnapshotTabs(automation.Get(), target);
 
-        const bool failed = tabs.empty();
-        auto* payload = new TabSnapshot{ target, std::move(tabs), failed };
-        if (!PostMessageW(m_dockHwnd, m_resultMsg,
-                          reinterpret_cast<WPARAM>(target),
-                          reinterpret_cast<LPARAM>(payload)))
-            delete payload;
+            const bool failed = tabs.empty();
+            auto* payload = new TabSnapshot{ target, std::move(tabs), failed };
+            if (!PostMessageW(m_dockHwnd, m_resultMsg,
+                              reinterpret_cast<WPARAM>(target),
+                              reinterpret_cast<LPARAM>(payload)))
+                delete payload;
+        }
+        catch (...) {}  // bad_alloc etc. → skip iteration, continue loop
     }
 
     CoUninitialize();

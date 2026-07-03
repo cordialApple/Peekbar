@@ -48,7 +48,7 @@ namespace
         std::wstring tabLine;
         for (size_t i = 0; i < win.tabs.size(); ++i)
         {
-            if (i > 0) tabLine += L"  Â·  ";
+            if (i > 0) tabLine += L"  \u00B7  ";
             tabLine += win.tabs[i].title;
         }
         if (win.tabsStale)
