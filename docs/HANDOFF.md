@@ -37,9 +37,12 @@ performance over ETW.
 | Profiler (parallel workstream) | ⬜ unlocked — see `docs/plans/profiler.md` |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
-**Next action: Stage 4 step 4.1 — read `docs/plans/stage-4.md`, refine against current code, then start.**
+**Next action: Stage 4 step 4.2a — capture selected-tab state in TabReader (active-tab highlight),
+then 4.3 hover-fan popup.** See `docs/plans/stage-4.md` (variant D).
 
 Deferred debt:
+- [renderer-tiny-card] Very narrow cards (rowW < ~48px, i.e. many minimized windows) drop the
+  "+N" overflow indicator silently. Degenerate many-window case; revisit if window count grows.
 - [tabreader-locale] CleanTabTitle strips English suffixes only (" - Sleeping", " - Pinned",
   " - Memory usage - N MB"). Non-English Chrome/Edge won't strip. Isolated in TabReader (rule 6 OK).
 - [F-01 threading] g_dockHwnd non-atomic; CrashFilter reads from faulting thread. HARD GATE:
@@ -151,6 +154,12 @@ one line to the session log. Keep this file short — prune, don't accumulate.
   threading: F-01 pre-existing deferred to 2.3, comment tightened) → adjudicator → MAY PROCEED.
   Build pending on Windows. Next: 2.2.
 - 2026-07-03 — Fix: pre-warm UIA on EVENT_SYSTEM_FOREGROUND (fourth hook). Tab tree stripped on minimized window → snapshot while still visible. Inspector burst (AppBar: F-A1/A2 dismissed nits; threading: F-T1 informational narrow-lock watch item) → adjudicator → MAY PROCEED. Build clean; runtime re-test needed.
+- 2026-07-03 — Stage 4 direction set to variant D (side-by-side minimized-only cards + per-window
+  hover-fan; drop many-window overflow — user has 2-3 windows × 10+ tabs). Plan rewritten in
+  stage-4.md. Step 4.1 done (Paint shows only minimized windows; open windows hidden). Step 4.2
+  done (N tabs badge + legible ~110px chips stretched to fill + guards for narrow cards/badge-fit).
+  Inspector bursts (DPI + visual/layout) + adjudicate on each. Loop disabled per user; run
+  autonomously (see memory). Next: 4.2a selected-tab state, then 4.3 hover-fan.
 - 2026-07-03 — Stage 3 ACCEPTED on Win11: minimize browser → per-window card shows real tab
   titles. Root-caused the empty-tabs bug via a temp UIA tree dump (browser TabItems nest two
   panes deep under the "Tab bar" control → TreeScope_Children found nothing; fixed to
