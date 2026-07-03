@@ -29,7 +29,7 @@ performance over ETW.
 | Workstream | State |
 |---|---|
 | Docs & plans | ✅ Complete (architecture + per-stage plans) |
-| Stage 1 — AppBar dock | 🔶 In progress — 1.1 ✅ 1.2 ✅ 1.3 ✅ 1.4 ✅ 1.5 ✅ 1.6 ✅, **NEXT → Step 1.7** (`docs/plans/stage-1.md`) |
+| Stage 1 — AppBar dock | 🔶 All 7 steps coded ✅ — **NEXT: run Stage 1 acceptance row (§12) on Windows** to close Stage 1 |
 | Stage 2 — browser detection | ⬜ blocked on Stage 1 |
 | Stage 3 — single-window tabs | ⬜ blocked on Stage 2 |
 | Stage 4 — multi-window stacks | ⬜ blocked on Stage 3 |
@@ -37,12 +37,15 @@ performance over ETW.
 | Profiler (parallel workstream) | ⬜ unlocks when Stage 1 accepted (`docs/plans/profiler.md`) |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
-**Next action: Stage 1, Step 1.7 — Exit hygiene + single instance.** See
-`docs/plans/stage-1.md`. Notes going into 1.7:
-- WM_ENDSESSION/WM_QUERYENDSESSION: remove AppBar on logoff/shutdown.
-- Single instance: named mutex at startup; second launch exits immediately.
-- Crash safety: SetUnhandledExceptionFilter removes AppBar before dying (best-effort).
-- Deferred debt: F-01 mixed-DPI AppBarSetPos monitor/DPI-source mismatch — defer to multi-monitor stage.
+**Next action: Run Stage 1 acceptance row (`docs/ARCHITECTURE.md` §12) on Windows.**
+All seven steps are coded and build clean. Acceptance tests must pass on real Win10/11 to
+close Stage 1 and unlock Stage 2 + profiler workstream.
+
+Deferred debt going into Stage 2:
+- [F-01 threading] Crash filter calls SHAppBarMessage on faulting thread + g_dockHwnd is
+  non-atomic. Harmless in single-threaded Stage 1. MUST FIX before the first Stage 2 step
+  that adds a worker thread (marshal to UI thread, make g_dockHwnd atomic).
+- [DPI] Mixed-DPI AppBarSetPos monitor/DPI-source mismatch — defer to multi-monitor stage.
 
 **Build note (this machine):** VS2022 Pro's C++ install now works — the
 canonical CLAUDE.md commands (`cmake -B build -G "Visual Studio 17 2022"`,
@@ -99,6 +102,12 @@ one line to the session log. Keep this file short — prune, don't accumulate.
   2 suspicious dismissed) → adjudicator → MAY PROCEED. Checkpoint on Windows:
   dock flush above taskbar full-width ✅, Notepad maximize stops at dock edge ✅,
   exit→maximize→no gap ✅. Next: 1.6.
+- 2026-07-03 — Step 1.7 done: single-instance named mutex (CreateMutexW/ERROR_ALREADY_EXISTS),
+  WM_QUERYENDSESSION→TRUE + WM_ENDSESSION(wParam!=0)→AppBarRemove+PostQuitMessage,
+  SetUnhandledExceptionFilter crash filter (best-effort ABM_REMOVE, EXCEPTION_CONTINUE_SEARCH).
+  Inspector burst (AppBar-hygiene: narrow-gap A1 dismissed as best-effort design contract;
+  threading: F-01 crash-filter-off-UI-thread deferred to Stage 2 first worker step) →
+  adjudicator → MAY PROCEED. Build clean; Stage 1 acceptance row (§12) pending on Windows.
 - 2026-07-03 — Step 1.6 done: ABN_FULLSCREENAPP handler (SetWindowPos HWND_BOTTOM/HWND_TOPMOST on
   lparam toggle) + GetDpiForWindow==0 guards in AppBarSetPos and WM_PAINT. Inspector burst
   (AppBar-hygiene clean, threading clean, DPI: F-01 pre-existing deferred, F-02/F-03 nits) →

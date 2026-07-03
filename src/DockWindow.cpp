@@ -220,6 +220,21 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         AppBarSetPos(hwnd);
         return 0;
 
+    case WM_QUERYENDSESSION:
+        // Allow logoff/shutdown; actual cleanup in WM_ENDSESSION.
+        return TRUE;
+
+    case WM_ENDSESSION:
+        // wParam nonzero: shutdown/logoff confirmed; remove AppBar now.
+        // PostQuitMessage lets the message loop exit cleanly before Windows
+        // terminates the process.
+        if (wparam)
+        {
+            AppBarRemove(hwnd);
+            PostQuitMessage(0);
+        }
+        return 0;
+
     case WM_RBUTTONUP:
         // Debug quit for Stage 1 testing. DestroyWindow send WM_DESTROY
         // synchronously (re-enter this WndProc) before returning here.
