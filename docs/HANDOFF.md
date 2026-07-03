@@ -40,6 +40,8 @@ performance over ETW.
 **Next action: Run §12 row 3 acceptance test on Windows, then mark Stage 3 complete and start Stage 4.**
 
 Deferred debt:
+- [tabreader-locale] CleanTabTitle strips English suffixes only (" - Sleeping", " - Pinned",
+  " - Memory usage - N MB"). Non-English Chrome/Edge won't strip. Isolated in TabReader (rule 6 OK).
 - [F-01 threading] g_dockHwnd non-atomic; CrashFilter reads from faulting thread. HARD GATE:
   must fix (std::atomic<HWND>) before Step 2.3 checkpoint (first worker thread). Also marshal
   SHAppBarMessage call to UI thread.
