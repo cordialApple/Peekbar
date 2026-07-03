@@ -56,6 +56,15 @@ workstream, defined in `docs/ARCHITECTURE.md`; step-by-step plans in
    code with it. The only contract is the ETW provider/event names in
    `docs/ARCHITECTURE.md` §10.
 
+## Checkpoint protocol
+
+After implementing a step, gate it through this burst before declaring the checkpoint passed:
+
+1. **Inspector burst** — launch one inspector agent per lens the step touches, in parallel. Minimum lenses every step: AppBar-hygiene exit paths (every step that touches lifetime code), threading-rule violations (every step that adds async work). Add DPI correctness when the step touches painting or window sizing. Each inspector reports findings only — no verdicts.
+2. **Adjudicate** — feed all inspector findings to the adjudicator. It deduplicates, dismisses false positives, and renders either `CHECKPOINT MAY PROCEED` or `CHECKPOINT BLOCKED` with a must-fix list.
+3. **Fix and re-burst** — if `BLOCKED`, apply every must-fix, rebuild, re-run the affected inspector lens(es), re-adjudicate. Repeat until `MAY PROCEED`.
+4. **Run checkpoint** — only after `MAY PROCEED`. Report actual results honestly; never claim runtime verification that wasn't done on Windows.
+
 ## Build & verify
 
 ```

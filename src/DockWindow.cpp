@@ -16,7 +16,7 @@ bool DockWindow::Create(HINSTANCE instance)
     wc.lpfnWndProc = StaticWndProc;
     wc.hInstance = instance;
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    wc.hbrBackground = reinterpret_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
+    wc.hbrBackground = nullptr; // WM_ERASEBKGND returns 1; WM_PAINT owns all drawing
     wc.lpszClassName = kClassName;
     if (!RegisterClassExW(&wc))
     {
@@ -48,6 +48,7 @@ bool DockWindow::Create(HINSTANCE instance)
     // m_hwnd already set by WM_NCCREATE, but belt + suspenders.
     m_hwnd = hwnd;
     ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+    UpdateWindow(hwnd); // force immediate WM_PAINT before message loop
     return true;
 }
 
@@ -81,6 +82,47 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     switch (msg)
     {
+    case WM_ERASEBKGND:
+        // WM_PAINT owns all drawing; suppress default erase to avoid flicker.
+        return 1;
+
+    case WM_PAINT:
+    {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
+
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+
+        // Dark background fill
+        HBRUSH bg = CreateSolidBrush(RGB(28, 28, 30));
+        FillRect(hdc, &rc, bg);
+        DeleteObject(bg);
+
+        // DPI-scaled font. PMv2 owns all pixels; stock DC font is 96-DPI baseline
+        // and renders too small at 150%. MulDiv(12, dpi, 72) converts 12pt → pixels.
+        const UINT dpi = GetDpiForWindow(hwnd);
+        LOGFONTW lf = {};
+        lf.lfHeight = -MulDiv(12, static_cast<int>(dpi), 72);
+        lf.lfWeight = FW_NORMAL;
+        lf.lfCharSet = DEFAULT_CHARSET;
+        lf.lfQuality = CLEARTYPE_QUALITY;
+        wcscpy_s(lf.lfFaceName, L"Segoe UI");
+        HFONT font = CreateFontIndirectW(&lf);
+        HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, font));
+
+        // Centered label
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, RGB(220, 220, 220));
+        DrawTextW(hdc, L"browser_shell_os dock", -1, &rc,
+                  DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+        SelectObject(hdc, oldFont);
+        DeleteObject(font);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+
     case WM_RBUTTONUP:
         // Debug quit for Stage 1 testing. DestroyWindow send WM_DESTROY
         // synchronously (re-enter this WndProc) before returning here.

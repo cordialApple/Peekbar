@@ -29,7 +29,7 @@ performance over ETW.
 | Workstream | State |
 |---|---|
 | Docs & plans | ✅ Complete (architecture + per-stage plans) |
-| Stage 1 — AppBar dock | 🔶 In progress — 1.1 ✅ 1.2 ✅, **NEXT → Step 1.3** (`docs/plans/stage-1.md`) |
+| Stage 1 — AppBar dock | 🔶 In progress — 1.1 ✅ 1.2 ✅ 1.3 ✅, **NEXT → Step 1.4** (`docs/plans/stage-1.md`) |
 | Stage 2 — browser detection | ⬜ blocked on Stage 1 |
 | Stage 3 — single-window tabs | ⬜ blocked on Stage 2 |
 | Stage 4 — multi-window stacks | ⬜ blocked on Stage 3 |
@@ -37,15 +37,14 @@ performance over ETW.
 | Profiler (parallel workstream) | ⬜ unlocks when Stage 1 accepted (`docs/plans/profiler.md`) |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
-**Next action: Stage 1, Step 1.3 — placeholder painting.** See
-`docs/plans/stage-1.md`. Carry-overs from 1.2 review:
-- **Into 1.3:** set `hbrBackground = nullptr` + handle `WM_ERASEBKGND`
-  (return 1) when WM_PAINT lands; add `UpdateWindow` after `ShowWindow`.
-- **Into 1.4 (mandatory checklist):** add `~DockWindow()` calling
-  `DestroyWindow(m_hwnd)` so abnormal exit paths (GetMessage -1) reach
-  `WM_DESTROY`→`ABM_REMOVE`; in `WM_DESTROY` do ABM_REMOVE using the `hwnd`
-  WndProc param (NOT `m_hwnd`), and null `m_hwnd` LAST; revisit whether
-  `WS_EX_TOPMOST` stays once the AppBar is registered.
+**Next action: Stage 1, Step 1.4 — AppBar registration + removal.** See
+`docs/plans/stage-1.md`. Mandatory carry-overs from 1.2/1.3 review:
+- Add `~DockWindow()` calling `DestroyWindow(m_hwnd)` so abnormal exit paths
+  (GetMessage -1) reach `WM_DESTROY`→`ABM_REMOVE`.
+- In `WM_DESTROY`: do ABM_REMOVE using the `hwnd` WndProc param (NOT `m_hwnd`),
+  null `m_hwnd` LAST.
+- Revisit whether `WS_EX_TOPMOST` stays once the AppBar is registered.
+- Optional debt: guard `GetDpiForWindow==0` → default 96 before MulDiv (F-01 from 1.3 adjudication).
 - Edge-case research for 1.5–1.7 and Stages 2–5 lives in
   `docs/research/win32-edge-cases.md` (auto-hide, multi-monitor, Win11 UIA).
 
@@ -96,3 +95,10 @@ one line to the session log. Keep this file short — prune, don't accumulate.
   Opus verifier: 2 fixes applied (WS_EX_NOACTIVATE, rationale comments),
   5 deferred as carry-overs above, 5 rejected. 3 research agents' Win32
   edge-case findings saved to docs/research/win32-edge-cases.md. Next: 1.3.
+- 2026-07-03 — Step 1.3 done: WM_PAINT (dark fill + DPI-scaled Segoe UI 12pt
+  via GetDpiForWindow+MulDiv), WM_ERASEBKGND→1, hbrBackground=nullptr,
+  UpdateWindow after ShowWindow. Inspector burst (AppBar-hygiene, threading,
+  DPI) → adjudicator → BLOCKED on default-font not DPI-scaled → fixed →
+  re-burst → MAY PROCEED. Checkpoint: text crisp at 100%/150% — visual
+  verification pending on Windows (hard rule 3). Checkpoint protocol added to
+  CLAUDE.md. Next: 1.4.
