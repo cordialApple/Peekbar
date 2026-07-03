@@ -29,7 +29,7 @@ performance over ETW.
 | Workstream | State |
 |---|---|
 | Docs & plans | ✅ Complete (architecture + per-stage plans) |
-| Stage 1 — AppBar dock | ⬜ **NEXT → Step 1.1** (`docs/plans/stage-1.md`) |
+| Stage 1 — AppBar dock | 🔶 In progress — 1.1 ✅, **NEXT → Step 1.2** (`docs/plans/stage-1.md`) |
 | Stage 2 — browser detection | ⬜ blocked on Stage 1 |
 | Stage 3 — single-window tabs | ⬜ blocked on Stage 2 |
 | Stage 4 — multi-window stacks | ⬜ blocked on Stage 3 |
@@ -37,8 +37,17 @@ performance over ETW.
 | Profiler (parallel workstream) | ⬜ unlocks when Stage 1 accepted (`docs/plans/profiler.md`) |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
-**Next action: Stage 1, Step 1.1 — project scaffolding** (CMakeLists.txt,
-empty `wWinMain`, .gitignore). See `docs/plans/stage-1.md`.
+**Next action: Stage 1, Step 1.2 — DPI awareness + bare window + message
+loop.** See `docs/plans/stage-1.md`. Carry-over from 1.1 review: check the
+`SetProcessDpiAwarenessContext` return value (abort on FALSE), and pin
+`_WIN32_WINNT`/`WINVER`/`NTDDI_VERSION` in CMakeLists when the DPI code lands.
+
+**Build note (this machine):** VS2022 Pro's C++ install is broken
+(`vcvarsall.bat` missing; instance invisible to CMake's VS generator), so the
+CLAUDE.md command `cmake -G "Visual Studio 17 2022"` FAILS here. Verified
+working path: `"...\2019\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" x64`
+then `cmake -B build -G "NMake Makefiles" && cmake --build build`
+(vswhere dir + `C:\Program Files\CMake\bin` must be on PATH first).
 
 ## Doc map
 
@@ -68,3 +77,8 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 - 2026-07-02 — Docs bootstrapped: architecture (stages 1–5 + observability),
   per-stage plans, CLAUDE.md rules, this handoff. No code yet. Next: 1.1.
+- 2026-07-02 — Step 1.1 done: CMakeLists.txt, stub `wWinMain`, .gitignore.
+  Built + ran on Win11 (exit 0) via VS2019 BuildTools + NMake (VS2022 C++
+  install broken on this machine — see build note above). 4-reviewer
+  adversarial burst + verifier: PASS, no code findings; DPI items deferred
+  to 1.2. Next: 1.2.
