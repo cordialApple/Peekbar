@@ -4,12 +4,9 @@
 
 namespace
 {
-    constexpr wchar_t kClassName[] = L"BrowserShellOsDockWindow";
-    constexpr UINT    kCallbackMsg = WM_APP + 1; // AppBar shell callback
-
-    // Debug rect for 1.2. Real size come from AppBar negotiation in 1.5.
-    constexpr int kDebugWidth = 550;
-    constexpr int kDebugHeight = 64;
+    constexpr wchar_t kClassName[]   = L"BrowserShellOsDockWindow";
+    constexpr UINT    kCallbackMsg   = WM_APP + 1; // AppBar shell callback
+    constexpr int     kDockHeightDip = 64;          // dock height at 96 DPI; scales with monitor DPI
 }
 
 DockWindow::~DockWindow()
@@ -36,19 +33,16 @@ bool DockWindow::Create(HINSTANCE instance)
         return false;
     }
 
-    // Debug position: bottom-left above taskbar. Replaced by AppBar negotiation in 1.5.
-    const int x = 160;
-    const int y = 1645;
-
     // WS_EX_TOOLWINDOW: no taskbar button, no Alt-Tab. WS_EX_TOPMOST: stay
     // visible; AppBar alone does not guarantee z-order. WS_EX_NOACTIVATE: dock
     // never steals foreground. Step 1.6 drops TOPMOST for fullscreen apps.
+    // Initial position is (0,0,1,1) — AppBarSetPos moves it before ShowWindow.
     const HWND hwnd = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE,
         kClassName,
         L"browser_shell_os dock",
         WS_POPUP,
-        x, y, kDebugWidth, kDebugHeight,
+        0, 0, 1, 1,
         nullptr, nullptr, instance,
         this);
     if (!hwnd)
@@ -58,10 +52,8 @@ bool DockWindow::Create(HINSTANCE instance)
 
     // m_hwnd already set by WM_NCCREATE, but belt + suspenders.
     m_hwnd = hwnd;
-    ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-    UpdateWindow(hwnd); // force immediate WM_PAINT before message loop
 
-    // Register AppBar. Position negotiation (ABM_QUERYPOS/SETPOS) is step 1.5.
+    // Register AppBar before Show so position negotiation runs first.
     m_abd        = {};
     m_abd.cbSize = sizeof(m_abd);
     m_abd.hWnd   = hwnd;
@@ -72,7 +64,51 @@ bool DockWindow::Create(HINSTANCE instance)
         return false;
     }
     m_appBarRegistered = true;
+
+    // Negotiate and commit position before making window visible.
+    AppBarSetPos(hwnd);
+
+    ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+    UpdateWindow(hwnd);
     return true;
+}
+
+void DockWindow::AppBarSetPos(HWND hwnd)
+{
+    // Primary monitor physical rect (rcMonitor, NOT rcWork — shell arbitrates via QUERYPOS).
+    HMONITOR hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY);
+    MONITORINFO mi = {};
+    mi.cbSize = sizeof(mi);
+    GetMonitorInfoW(hmon, &mi);
+
+    // Scale dock height from 96-DPI baseline to this window's per-monitor DPI.
+    const int dpi = static_cast<int>(GetDpiForWindow(hwnd));
+    m_dockHeight = MulDiv(kDockHeightDip, dpi, 96);
+
+    // Propose: full monitor width, bottom-anchored.
+    m_abd.hWnd  = hwnd;
+    m_abd.uEdge = ABE_BOTTOM;
+    m_abd.rc    = { mi.rcMonitor.left,
+                    mi.rcMonitor.bottom - m_dockHeight,
+                    mi.rcMonitor.right,
+                    mi.rcMonitor.bottom };
+
+    // Shell shrinks/moves rc so we don't overlap the taskbar or other appbars.
+    SHAppBarMessage(ABM_QUERYPOS, &m_abd);
+
+    // Re-anchor top relative to adjusted bottom (shell may have moved bottom up).
+    m_abd.rc.top = m_abd.rc.bottom - m_dockHeight;
+
+    // Commit reservation.
+    SHAppBarMessage(ABM_SETPOS, &m_abd);
+
+    // Move window to exactly the negotiated rect.
+    SetWindowPos(hwnd, nullptr,
+                 m_abd.rc.left,
+                 m_abd.rc.top,
+                 m_abd.rc.right  - m_abd.rc.left,
+                 m_abd.rc.bottom - m_abd.rc.top,
+                 SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 LRESULT CALLBACK DockWindow::StaticWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -153,6 +189,25 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         EndPaint(hwnd, &ps);
         return 0;
     }
+
+    case kCallbackMsg:
+        // Shell notifies of AppBar/taskbar state changes.
+        if (wparam == ABN_POSCHANGED || wparam == ABN_STATECHANGE)
+        {
+            AppBarSetPos(hwnd);
+        }
+        return 0;
+
+    case WM_DISPLAYCHANGE:
+        // Resolution changed; renegotiate position.
+        AppBarSetPos(hwnd);
+        return 0;
+
+    case WM_DPICHANGED:
+        // Per-monitor DPI changed; GetDpiForWindow now reflects new DPI. Renegotiate.
+        // (AppBar owns its own rect via negotiation — ignore the suggested rect in lParam.)
+        AppBarSetPos(hwnd);
+        return 0;
 
     case WM_RBUTTONUP:
         // Debug quit for Stage 1 testing. DestroyWindow send WM_DESTROY

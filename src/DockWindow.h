@@ -22,8 +22,10 @@ private:
     LRESULT WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
     void AppBarRemove(HWND hwnd);
+    void AppBarSetPos(HWND hwnd);   // ABM_QUERYPOS → re-anchor → ABM_SETPOS → SetWindowPos
 
     HWND       m_hwnd             = nullptr;
     APPBARDATA m_abd              = {};
     bool       m_appBarRegistered = false;
+    int        m_dockHeight       = 0; // physical px, set once in Create, rescaled on WM_DPICHANGED
 };
