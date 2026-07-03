@@ -1,12 +1,35 @@
 #include "TabReader.h"
 #include <UIAutomation.h>
 #include <wrl/client.h>
+#include <cwchar>
 #include <string>
 
 using Microsoft::WRL::ComPtr;
 
 namespace
 {
+
+static bool EndsWith(const std::wstring& s, const wchar_t* suffix)
+{
+    const size_t n = wcslen(suffix);
+    return s.size() >= n && s.compare(s.size() - n, n, suffix) == 0;
+}
+
+// Edge appends status/telemetry suffixes to tab TabItem names, e.g.
+// "<title> - Pinned - Sleeping - Memory usage - 103 MB". Strip them.
+static std::wstring CleanTabTitle(std::wstring s)
+{
+    const size_t mu = s.rfind(L" - Memory usage");
+    if (mu != std::wstring::npos)
+        s.erase(mu);
+    for (bool changed = true; changed; )
+    {
+        changed = false;
+        for (const wchar_t* suf : { L" - Sleeping", L" - Pinned" })
+            if (EndsWith(s, suf)) { s.erase(s.size() - wcslen(suf)); changed = true; }
+    }
+    return s;
+}
 
 // Walk up the parent chain looking for a Document control type.
 // Browser chrome elements are never inside a document; web content always is.
@@ -69,8 +92,9 @@ std::vector<Tab> SnapshotTabs(IUIAutomation* automation, HWND hwnd)
         // Skip web-content tab controls — they live inside a Document node.
         if (IsInsideDocument(automation, tabCtrl.Get())) continue;
 
+        // TabItems are nested inside layout panes, not direct children — use Descendants.
         ComPtr<IUIAutomationElementArray> items;
-        if (FAILED(tabCtrl->FindAllBuildCache(TreeScope_Children, tabItemCond.Get(),
+        if (FAILED(tabCtrl->FindAllBuildCache(TreeScope_Descendants, tabItemCond.Get(),
                                                cacheReq.Get(), &items)) || !items)
             continue;
 
@@ -87,7 +111,9 @@ std::vector<Tab> SnapshotTabs(IUIAutomation* automation, HWND hwnd)
             BSTR name = nullptr;
             if (SUCCEEDED(item->get_CachedName(&name)) && name)
             {
-                tabs.push_back({ std::wstring(name) });
+                std::wstring title = CleanTabTitle(name);
+                if (!title.empty())
+                    tabs.push_back({ std::move(title) });
                 SysFreeString(name);
             }
         }
