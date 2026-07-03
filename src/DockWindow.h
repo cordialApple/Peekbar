@@ -22,6 +22,9 @@ private:
     static LRESULT CALLBACK StaticWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
     LRESULT WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
+    static void CALLBACK WinEventProc(HWINEVENTHOOK, DWORD event, HWND hwnd,
+                                      LONG idObject, LONG, DWORD, DWORD) noexcept;
+
     void AppBarRemove(HWND hwnd);
     void AppBarSetPos(HWND hwnd);   // ABM_QUERYPOS → re-anchor → ABM_SETPOS → SetWindowPos
 
@@ -30,4 +33,5 @@ private:
     bool              m_appBarRegistered = false;
     int               m_dockHeight       = 0;
     std::vector<HWND> m_browsers;        // tracked browser frames; UI thread only
+    HWINEVENTHOOK     m_winEventHook     = nullptr;
 };

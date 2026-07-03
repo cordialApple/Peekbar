@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <shellapi.h>
+#include <atomic>
 
 #include "DockWindow.h"
 #include "WindowMonitor.h"
@@ -10,18 +11,19 @@ namespace
 
     // Crash filter: best-effort ABM_REMOVE before the default handler takes over.
     // Hard kill (Task Manager, kernel crash) still leaks the strip until Explorer
-    // restarts — this is documented, expected behavior (observed in step 1.4).
-    HWND g_dockHwnd = nullptr;
+    // restarts — documented expected behavior. Atomic so the faulting thread sees
+    // the current value without a data race (F-01 fix).
+    std::atomic<HWND> g_dockHwnd = nullptr;
 
     LONG CALLBACK CrashFilter(EXCEPTION_POINTERS*)
     {
-        if (g_dockHwnd)
+        HWND hwnd = g_dockHwnd.exchange(nullptr);
+        if (hwnd)
         {
             APPBARDATA abd = {};
             abd.cbSize = sizeof(abd);
-            abd.hWnd   = g_dockHwnd;
+            abd.hWnd   = hwnd;
             SHAppBarMessage(ABM_REMOVE, &abd);
-            g_dockHwnd = nullptr;
         }
         return EXCEPTION_CONTINUE_SEARCH;
     }
@@ -86,6 +88,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR lpCmdLine, int)
         DispatchMessageW(&msg);
     }
 
+    g_dockHwnd = nullptr; // WM_DESTROY already deregistered; tighten exchange intent
     CloseHandle(mutex);
     return static_cast<int>(msg.wParam);
 }

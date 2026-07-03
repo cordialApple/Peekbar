@@ -1,14 +1,21 @@
 #include "DockWindow.h"
 #include "Renderer.h"
 #include "WindowMonitor.h"
+#include <algorithm>
 
 #pragma comment(lib, "shell32.lib")
 
 namespace
 {
-    constexpr wchar_t kClassName[]   = L"BrowserShellOsDockWindow";
-    constexpr UINT    kCallbackMsg   = WM_APP + 1; // AppBar shell callback
-    constexpr int     kDockHeightDip = 64;          // dock height at 96 DPI; scales with monitor DPI
+    constexpr wchar_t kClassName[]      = L"BrowserShellOsDockWindow";
+    constexpr UINT    kCallbackMsg      = WM_APP + 1; // AppBar shell callback
+    constexpr UINT    kWindowEventMsg   = WM_APP + 2; // WinEvent → dock thread
+    constexpr int     kDockHeightDip    = 64;          // dock height at 96 DPI; scales with monitor DPI
+
+    // Single-instance: safe to keep a plain HWND here for the WinEventProc callback.
+    // Written on the UI thread in Create/WM_DESTROY; read on the same thread in WinEventProc
+    // (OUTOFCONTEXT delivers on our message-pump thread). No cross-thread access.
+    HWND s_dockHwnd = nullptr;
 }
 
 DockWindow::~DockWindow()
@@ -74,6 +81,14 @@ bool DockWindow::Create(HINSTANCE instance)
 
     ShowWindow(hwnd, SW_SHOWNOACTIVATE);
     UpdateWindow(hwnd);
+
+    s_dockHwnd    = hwnd;
+    m_winEventHook = SetWinEventHook(
+        EVENT_OBJECT_CREATE, EVENT_OBJECT_HIDE,
+        nullptr, WinEventProc,
+        0, 0,
+        WINEVENT_OUTOFCONTEXT);
+
     return true;
 }
 
@@ -151,6 +166,16 @@ void DockWindow::AppBarRemove(HWND hwnd)
     SHAppBarMessage(ABM_REMOVE, &m_abd);
 }
 
+// static
+void CALLBACK DockWindow::WinEventProc(HWINEVENTHOOK, DWORD event, HWND hwnd,
+                                        LONG idObject, LONG, DWORD, DWORD) noexcept
+{
+    // Cheap pre-filter on the pump thread before any validation.
+    if (idObject != OBJID_WINDOW || !hwnd || !s_dockHwnd) return;
+    PostMessageW(s_dockHwnd, kWindowEventMsg,
+                 static_cast<WPARAM>(event), reinterpret_cast<LPARAM>(hwnd));
+}
+
 LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     switch (msg)
@@ -212,16 +237,34 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         }
         return 0;
 
+    case kWindowEventMsg:
+    {
+        HWND target = reinterpret_cast<HWND>(lparam);
+        const bool tracked = std::find(m_browsers.begin(), m_browsers.end(), target)
+                             != m_browsers.end();
+        if (IsBrowserFrame(target))
+        {
+            if (!tracked) m_browsers.push_back(target);
+        }
+        else
+        {
+            m_browsers.erase(std::remove(m_browsers.begin(), m_browsers.end(), target),
+                             m_browsers.end());
+        }
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return 0;
+    }
+
     case WM_RBUTTONUP:
-        // Debug quit for Stage 1 testing. DestroyWindow send WM_DESTROY
-        // synchronously (re-enter this WndProc) before returning here.
         DestroyWindow(hwnd);
         return 0;
 
     case WM_DESTROY:
-        AppBarRemove(hwnd); // must precede PostQuitMessage; uses hwnd param not m_hwnd
+        if (m_winEventHook) { UnhookWinEvent(m_winEventHook); m_winEventHook = nullptr; }
+        s_dockHwnd = nullptr;
+        AppBarRemove(hwnd);
         PostQuitMessage(0);
-        m_hwnd = nullptr;   // null last so AppBarRemove can use it if needed
+        m_hwnd = nullptr;
         return 0;
     }
     return DefWindowProcW(hwnd, msg, wparam, lparam);
