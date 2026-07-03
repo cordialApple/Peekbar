@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <vector>
+#include "Store.h"
 
 // Dock window. UI thread only owns this (CLAUDE.md rule 5).
 class DockWindow
@@ -32,7 +33,7 @@ private:
     APPBARDATA        m_abd              = {};
     bool              m_appBarRegistered = false;
     int               m_dockHeight       = 0;
-    std::vector<HWND> m_browsers;        // tracked browser frames; UI thread only
-    std::vector<HWND> m_pendingValidation; // HWNDs awaiting debounce flush
+    Store             m_store;
+    std::vector<HWND> m_pendingValidation;
     HWINEVENTHOOK     m_winEventHook     = nullptr;
 };

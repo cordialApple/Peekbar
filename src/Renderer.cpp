@@ -3,13 +3,12 @@
 
 namespace Renderer
 {
-    void Paint(HDC hdc, const RECT& rc, UINT dpi, const std::vector<HWND>& browsers)
+    void Paint(HDC hdc, const RECT& rc, UINT dpi, const Store& store)
     {
         HBRUSH bg = CreateSolidBrush(RGB(28, 28, 30));
         FillRect(hdc, &rc, bg);
         DeleteObject(bg);
 
-        // 12pt Segoe UI, DPI-scaled
         const int dpiI = dpi ? static_cast<int>(dpi) : 96;
         LOGFONTW lf = {};
         lf.lfHeight  = -MulDiv(12, dpiI, 72);
@@ -24,20 +23,20 @@ namespace Renderer
         SetTextColor(hdc, RGB(220, 220, 220));
 
         std::wstring label;
-        if (browsers.empty())
+        const auto& all = store.All();
+        if (all.empty())
         {
             label = L"browser: none";
         }
         else
         {
-            wchar_t title[256] = {};
-            GetWindowTextW(browsers[0], title, _countof(title));
+            const TrackedWindow& first = all.begin()->second;
             label = L"browser: ";
-            label += title;
-            if (browsers.size() > 1)
+            label += first.title;
+            if (all.size() > 1)
             {
                 wchar_t extra[32];
-                swprintf_s(extra, L" (+%zu)", browsers.size() - 1);
+                swprintf_s(extra, L" (+%zu)", all.size() - 1);
                 label += extra;
             }
         }

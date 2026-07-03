@@ -1,7 +1,6 @@
 #include "DockWindow.h"
 #include "Renderer.h"
 #include "WindowMonitor.h"
-#include <algorithm>
 
 #pragma comment(lib, "shell32.lib")
 
@@ -18,6 +17,13 @@ namespace
     // Written on the UI thread in Create/WM_DESTROY; read on the same thread in WinEventProc
     // (OUTOFCONTEXT delivers on our message-pump thread). No cross-thread access.
     HWND s_dockHwnd = nullptr;
+
+    void StoreWindow(Store& store, HWND hwnd)
+    {
+        wchar_t title[256] = {};
+        GetWindowTextW(hwnd, title, _countof(title));
+        store.Set(hwnd, title);
+    }
 }
 
 DockWindow::~DockWindow()
@@ -79,7 +85,10 @@ bool DockWindow::Create(HINSTANCE instance)
     // Negotiate and commit position before making window visible.
     AppBarSetPos(hwnd);
 
-    m_browsers = ScanBrowserFrames();
+    for (HWND h : ScanBrowserFrames())
+    {
+        StoreWindow(m_store, h);
+    }
 
     ShowWindow(hwnd, SW_SHOWNOACTIVATE);
     UpdateWindow(hwnd);
@@ -192,7 +201,7 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         HDC hdc = BeginPaint(hwnd, &ps);
         RECT rc;
         GetClientRect(hwnd, &rc);
-        Renderer::Paint(hdc, rc, GetDpiForWindow(hwnd), m_browsers);
+        Renderer::Paint(hdc, rc, GetDpiForWindow(hwnd), m_store);
         EndPaint(hwnd, &ps);
         return 0;
     }
@@ -256,15 +265,13 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             KillTimer(hwnd, kDebounceTimer);
             for (HWND target : m_pendingValidation)
             {
-                auto it = std::find(m_browsers.begin(), m_browsers.end(), target);
-                const bool tracked = (it != m_browsers.end());
                 if (IsBrowserFrame(target))
                 {
-                    if (!tracked) m_browsers.push_back(target);
+                    StoreWindow(m_store, target);
                 }
-                else if (tracked)
+                else if (m_store.Has(target))
                 {
-                    m_browsers.erase(it);
+                    m_store.Remove(target);
                 }
             }
             m_pendingValidation.clear();
