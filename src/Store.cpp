@@ -14,6 +14,13 @@ void Store::SetMinimized(HWND hwnd, bool minimized)
         it->second.minimized = minimized;
 }
 
+void Store::SetTabs(HWND hwnd, std::vector<Tab> tabs)
+{
+    auto it = m_windows.find(hwnd);
+    if (it != m_windows.end())
+        it->second.tabs = std::move(tabs);
+}
+
 void Store::Remove(HWND hwnd)
 {
     m_windows.erase(hwnd);

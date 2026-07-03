@@ -8,9 +8,10 @@
 namespace
 {
     constexpr wchar_t kClassName[]      = L"BrowserShellOsDockWindow";
-    constexpr UINT    kCallbackMsg      = WM_APP + 1; // AppBar shell callback
-    constexpr UINT    kWindowEventMsg   = WM_APP + 2; // WinEvent → dock thread
-    constexpr int     kDockHeightDip    = 64;          // dock height at 96 DPI; scales with monitor DPI
+    constexpr UINT    kCallbackMsg      = WM_APP + 1;
+    constexpr UINT    kWindowEventMsg   = WM_APP + 2;
+    constexpr UINT    kTabSnapshotMsg   = WM_APP + 3;
+    constexpr int     kDockHeightDip    = 64;
     constexpr UINT_PTR kDebounceTimer   = 1;
     constexpr UINT    kDebounceMs       = 200;
 
@@ -96,7 +97,7 @@ bool DockWindow::Create(HINSTANCE instance)
     ShowWindow(hwnd, SW_SHOWNOACTIVATE);
     UpdateWindow(hwnd);
 
-    s_dockHwnd    = hwnd;
+    s_dockHwnd = hwnd;
     m_winEventHook = SetWinEventHook(
         EVENT_OBJECT_CREATE, EVENT_OBJECT_HIDE,
         nullptr, WinEventProc,
@@ -107,6 +108,13 @@ bool DockWindow::Create(HINSTANCE instance)
         nullptr, WinEventProc,
         0, 0,
         WINEVENT_OUTOFCONTEXT);
+    m_winEventHookNameChange = SetWinEventHook(
+        EVENT_OBJECT_NAMECHANGE, EVENT_OBJECT_NAMECHANGE,
+        nullptr, WinEventProc,
+        0, 0,
+        WINEVENT_OUTOFCONTEXT);
+
+    m_tabReader = std::make_unique<TabReader>(hwnd, kTabSnapshotMsg);
 
     return true;
 }
@@ -189,7 +197,6 @@ void DockWindow::AppBarRemove(HWND hwnd)
 void CALLBACK DockWindow::WinEventProc(HWINEVENTHOOK, DWORD event, HWND hwnd,
                                         LONG idObject, LONG, DWORD, DWORD) noexcept
 {
-    // Cheap pre-filter on the pump thread before any validation.
     if (idObject != OBJID_WINDOW || !hwnd || !s_dockHwnd) return;
     PostMessageW(s_dockHwnd, kWindowEventMsg,
                  static_cast<WPARAM>(event), reinterpret_cast<LPARAM>(hwnd));
@@ -200,7 +207,6 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
     switch (msg)
     {
     case WM_ERASEBKGND:
-        // WM_PAINT owns all drawing; suppress default erase to avoid flicker.
         return 1;
 
     case WM_PAINT:
@@ -215,15 +221,12 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
     }
 
     case kCallbackMsg:
-        // Shell notifies of AppBar/taskbar state changes.
         if (wparam == ABN_POSCHANGED || wparam == ABN_STATECHANGE)
         {
             AppBarSetPos(hwnd);
         }
         else if (wparam == ABN_FULLSCREENAPP)
         {
-            // lparam nonzero: fullscreen app active → yield topmost so it's not overlaid.
-            // lparam zero: fullscreen ended → reclaim topmost.
             SetWindowPos(hwnd, lparam ? HWND_BOTTOM : HWND_TOPMOST,
                          0, 0, 0, 0,
                          SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
@@ -231,24 +234,17 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         return 0;
 
     case WM_DISPLAYCHANGE:
-        // Resolution changed; renegotiate position.
         AppBarSetPos(hwnd);
         return 0;
 
     case WM_DPICHANGED:
-        // Per-monitor DPI changed; GetDpiForWindow now reflects new DPI. Renegotiate.
-        // (AppBar owns its own rect via negotiation — ignore the suggested rect in lParam.)
         AppBarSetPos(hwnd);
         return 0;
 
     case WM_QUERYENDSESSION:
-        // Allow logoff/shutdown; actual cleanup in WM_ENDSESSION.
         return TRUE;
 
     case WM_ENDSESSION:
-        // wParam nonzero: shutdown/logoff confirmed; remove AppBar now.
-        // PostQuitMessage lets the message loop exit cleanly before Windows
-        // terminates the process.
         if (wparam)
         {
             AppBarRemove(hwnd);
@@ -265,7 +261,21 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         {
             if (m_store.Has(target))
             {
-                m_store.SetMinimized(target, event == EVENT_SYSTEM_MINIMIZESTART);
+                const bool minimizing = (event == EVENT_SYSTEM_MINIMIZESTART);
+                m_store.SetMinimized(target, minimizing);
+                if (minimizing && m_tabReader)
+                    m_tabReader->RequestSnapshot(target);
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        }
+
+        if (event == EVENT_OBJECT_NAMECHANGE)
+        {
+            if (m_store.Has(target))
+            {
+                StoreWindow(m_store, target);
+                if (m_tabReader) m_tabReader->RequestSnapshot(target);
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
             return 0;
@@ -299,14 +309,40 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         }
         return 0;
 
+    case kTabSnapshotMsg:
+    {
+        auto* payload = reinterpret_cast<TabSnapshot*>(lparam);
+        if (payload)
+        {
+#ifdef _DEBUG
+            wchar_t dbg[512];
+            swprintf_s(dbg, L"[TabReader] hwnd=%p tabs=%d\n",
+                       reinterpret_cast<void*>(payload->hwnd),
+                       static_cast<int>(payload->tabs.size()));
+            OutputDebugStringW(dbg);
+            for (const auto& tab : payload->tabs)
+            {
+                swprintf_s(dbg, L"  %s\n", tab.title.c_str());
+                OutputDebugStringW(dbg);
+            }
+#endif
+            m_store.SetTabs(payload->hwnd, std::move(payload->tabs));
+            delete payload;
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        return 0;
+    }
+
     case WM_RBUTTONUP:
         DestroyWindow(hwnd);
         return 0;
 
     case WM_DESTROY:
+        m_tabReader.reset();  // join worker before unhooking and removing appbar
         KillTimer(hwnd, kDebounceTimer);
-        if (m_winEventHookMinimize) { UnhookWinEvent(m_winEventHookMinimize); m_winEventHookMinimize = nullptr; }
-        if (m_winEventHook) { UnhookWinEvent(m_winEventHook); m_winEventHook = nullptr; }
+        if (m_winEventHookNameChange) { UnhookWinEvent(m_winEventHookNameChange); m_winEventHookNameChange = nullptr; }
+        if (m_winEventHookMinimize)   { UnhookWinEvent(m_winEventHookMinimize);   m_winEventHookMinimize   = nullptr; }
+        if (m_winEventHook)           { UnhookWinEvent(m_winEventHook);           m_winEventHook           = nullptr; }
         s_dockHwnd = nullptr;
         AppBarRemove(hwnd);
         PostQuitMessage(0);

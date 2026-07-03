@@ -3,7 +3,9 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <vector>
+#include <memory>
 #include "Store.h"
+#include "TabReader.h"
 
 // Dock window. UI thread only owns this (CLAUDE.md rule 5).
 class DockWindow
@@ -14,7 +16,6 @@ public:
     DockWindow(const DockWindow&) = delete;
     DockWindow& operator=(const DockWindow&) = delete;
 
-    // Register class + create + show + AppBar register. False if Win32 say no.
     bool Create(HINSTANCE instance);
 
     HWND Hwnd() const { return m_hwnd; }
@@ -27,7 +28,7 @@ private:
                                       LONG idObject, LONG, DWORD, DWORD) noexcept;
 
     void AppBarRemove(HWND hwnd);
-    void AppBarSetPos(HWND hwnd);   // ABM_QUERYPOS → re-anchor → ABM_SETPOS → SetWindowPos
+    void AppBarSetPos(HWND hwnd);
 
     HWND              m_hwnd             = nullptr;
     APPBARDATA        m_abd              = {};
@@ -35,6 +36,8 @@ private:
     int               m_dockHeight       = 0;
     Store             m_store;
     std::vector<HWND> m_pendingValidation;
-    HWINEVENTHOOK     m_winEventHook         = nullptr;
-    HWINEVENTHOOK     m_winEventHookMinimize = nullptr;
+    HWINEVENTHOOK     m_winEventHook           = nullptr;
+    HWINEVENTHOOK     m_winEventHookMinimize   = nullptr;
+    HWINEVENTHOOK     m_winEventHookNameChange = nullptr;
+    std::unique_ptr<TabReader> m_tabReader;
 };
