@@ -37,8 +37,9 @@ performance over ETW.
 | Profiler (parallel workstream) | ⬜ unlocked — see `docs/plans/profiler.md` |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
-**Next action: Stage 4 step 4.2a — capture selected-tab state in TabReader (active-tab highlight),
-then 4.3 hover-fan popup.** See `docs/plans/stage-4.md` (variant D).
+**Next action: Stage 4 step 4.3 — per-window hover-fan popup.** See `docs/plans/stage-4.md` (variant D).
+4.2a done (active-tab flag + highlight); awaiting user dock-appearance check on the active-chip
+highlight (contrast tweak F-03 pending user call).
 
 Deferred debt:
 - [renderer-tiny-card] Very narrow cards (rowW < ~48px, i.e. many minimized windows) drop the
@@ -82,6 +83,12 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-03 — Step 4.2a done: TabReader caches UIA_SelectionItemIsSelectedPropertyId → Tab.active
+  (clamped to one active tab max at source); Renderer promotes active chip to front + highlights it
+  (kChipActiveBg/kTextActive). Inspector burst (visual/layout, DPI, threading) → adjudicator →
+  MAY PROCEED (F-01 split-highlight fixed at source in TabReader; F-02 unconditional VariantClear
+  applied; F-03 weak active-chip contrast = user visual call). Build clean. Runtime/visual check on
+  active-tab highlight pending with user. Next: 4.3 hover-fan.
 - 2026-07-02 — Docs bootstrapped: architecture (stages 1–5 + observability),
   per-stage plans, CLAUDE.md rules, this handoff. No code yet. Next: 1.1.
 - 2026-07-02 — Step 1.1 done: CMakeLists.txt, stub `wWinMain`, .gitignore.
