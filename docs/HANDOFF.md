@@ -31,13 +31,13 @@ performance over ETW.
 | Docs & plans | ✅ Complete (architecture + per-stage plans) |
 | Stage 1 — AppBar dock | ✅ Complete — all 7 steps + acceptance row passed on Win11 |
 | Stage 2 — browser detection | ✅ Complete — all 4 steps + §12 row 2 accepted on Win11 |
-| Stage 3 — single-window tabs | 🔄 code complete — §12 row 3 runtime acceptance pending |
-| Stage 4 — multi-window stacks | ⬜ blocked on Stage 3 |
+| Stage 3 — single-window tabs | ✅ Complete — tabs render per-window on minimize, accepted on Win11 |
+| Stage 4 — multi-window stacks | ⬜ unlocked — next |
 | Stage 5 — taskbar buttons | ⬜ blocked on Stage 4 |
 | Profiler (parallel workstream) | ⬜ unlocked — see `docs/plans/profiler.md` |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
-**Next action: Run §12 row 3 acceptance test on Windows, then mark Stage 3 complete and start Stage 4.**
+**Next action: Stage 4 step 4.1 — read `docs/plans/stage-4.md`, refine against current code, then start.**
 
 Deferred debt:
 - [tabreader-locale] CleanTabTitle strips English suffixes only (" - Sleeping", " - Pinned",
@@ -151,6 +151,13 @@ one line to the session log. Keep this file short — prune, don't accumulate.
   threading: F-01 pre-existing deferred to 2.3, comment tightened) → adjudicator → MAY PROCEED.
   Build pending on Windows. Next: 2.2.
 - 2026-07-03 — Fix: pre-warm UIA on EVENT_SYSTEM_FOREGROUND (fourth hook). Tab tree stripped on minimized window → snapshot while still visible. Inspector burst (AppBar: F-A1/A2 dismissed nits; threading: F-T1 informational narrow-lock watch item) → adjudicator → MAY PROCEED. Build clean; runtime re-test needed.
+- 2026-07-03 — Stage 3 ACCEPTED on Win11: minimize browser → per-window card shows real tab
+  titles. Root-caused the empty-tabs bug via a temp UIA tree dump (browser TabItems nest two
+  panes deep under the "Tab bar" control → TreeScope_Children found nothing; fixed to
+  TreeScope_Descendants). Also: /utf-8 flag fixed middle-dot corruption; EVENT_SYSTEM_FOREGROUND
+  pre-warm snapshot; IsInsideDocument skips web-content tablists; CleanTabTitle strips status
+  suffixes; per-tab chips fill full card width with +N overflow; stale marker dropped. Inspector
+  bursts (DPI + visual/layout added when Renderer changes) + adjudicator on each. Stage 4 unlocked.
 - 2026-07-03 — Step 3.5 done: staleness handling — TabSnapshot::failed flag (set when tabs.empty()); kTabSnapshotMsg branches: failure→MarkTabsStale (keeps prior tabs), success→SetTabs (clears stale); DrawCard appends "(stale)" to tab line. Inspector burst (AppBar: clean; threading: clean) → adjudicator → MAY PROCEED. Build clean; §12 row 3 runtime acceptance pending on Windows. Stage 3 code complete.
 - 2026-07-03 — Step 3.4 done: Renderer draws tab card for minimized windows — title header (FW_SEMIBOLD 10pt) + tab line (FW_NORMAL 9pt, " · " separator, DT_END_ELLIPSIS) from Store::tabs; DrawCard helper; active-window path unchanged. Pre-existing TabReader ComPtr/.Get() compile bug fixed. Inspector burst (AppBar: clean; threading: clean; DPI: F-D1 nit fixed inline, F-D2 informational pre-existing) → adjudicator → MAY PROCEED. Build clean; §12 row 3 runtime acceptance pending on Windows. Next: 3.5.
 - 2026-07-03 — Step 3.3 done: TabReader.{h,cpp} — worker thread (COINIT_MULTITHREADED), CoCreateInstance IUIAutomation, SnapshotTabs (ElementFromHandle→TabControl→TabItems→CachedName), PostMessage kTabSnapshotMsg heap payload. Third WinEvent hook (NAMECHANGE). RequestSnapshot on MINIMIZESTART + NAMECHANGE. kTabSnapshotMsg handler: SetTabs+delete+invalidate. Debug OutputDebugString dump. F-T1 fix: worker exits immediately on m_stop (no drain-then-stop). Inspector burst (AppBar: clean; threading: F-T2 MTA/UIA dismissed — MTA is correct; F-T1 fixed inline) → adjudicator → MAY PROCEED. Build clean; runtime checkpoint pending on Windows. Next: 3.4.
