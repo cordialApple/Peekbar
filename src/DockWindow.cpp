@@ -113,6 +113,13 @@ bool DockWindow::Create(HINSTANCE instance)
         nullptr, WinEventProc,
         0, 0,
         WINEVENT_OUTOFCONTEXT);
+    // Pre-warm UIA snapshot on foreground: a minimized window's UIA tree is
+    // stripped, so MINIMIZESTART fires too late. Snapshot while still visible.
+    m_winEventHookForeground = SetWinEventHook(
+        EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
+        nullptr, WinEventProc,
+        0, 0,
+        WINEVENT_OUTOFCONTEXT);
 
     m_tabReader = std::make_unique<TabReader>(hwnd, kTabSnapshotMsg);
 
@@ -270,6 +277,13 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             return 0;
         }
 
+        if (event == EVENT_SYSTEM_FOREGROUND)
+        {
+            if (m_store.Has(target) && m_tabReader)
+                m_tabReader->RequestSnapshot(target);
+            return 0;
+        }
+
         if (event == EVENT_OBJECT_NAMECHANGE)
         {
             if (m_store.Has(target))
@@ -344,6 +358,7 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
     case WM_DESTROY:
         m_tabReader.reset();  // join worker before unhooking and removing appbar
         KillTimer(hwnd, kDebounceTimer);
+        if (m_winEventHookForeground) { UnhookWinEvent(m_winEventHookForeground); m_winEventHookForeground = nullptr; }
         if (m_winEventHookNameChange) { UnhookWinEvent(m_winEventHookNameChange); m_winEventHookNameChange = nullptr; }
         if (m_winEventHookMinimize)   { UnhookWinEvent(m_winEventHookMinimize);   m_winEventHookMinimize   = nullptr; }
         if (m_winEventHook)           { UnhookWinEvent(m_winEventHook);           m_winEventHook           = nullptr; }

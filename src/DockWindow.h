@@ -39,5 +39,6 @@ private:
     HWINEVENTHOOK     m_winEventHook           = nullptr;
     HWINEVENTHOOK     m_winEventHookMinimize   = nullptr;
     HWINEVENTHOOK     m_winEventHookNameChange = nullptr;
+    HWINEVENTHOOK     m_winEventHookForeground = nullptr;
     std::unique_ptr<TabReader> m_tabReader;
 };
