@@ -5,8 +5,9 @@ namespace
 {
     constexpr COLORREF kBgColor      = RGB(28,  28,  30);
     constexpr COLORREF kCardBg       = RGB(44,  44,  48);
+    constexpr COLORREF kChipBg       = RGB(60,  60,  66);
     constexpr COLORREF kTextPrimary  = RGB(220, 220, 220);
-    constexpr COLORREF kTextSecond   = RGB(160, 160, 165);
+    constexpr COLORREF kTextSecond   = RGB(170, 170, 176);
 
     int ScalePx(int px, int dpiI) { return MulDiv(px, dpiI, 96); }
 
@@ -43,22 +44,79 @@ namespace
                   DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
         SelectObject(hdc, tabFont);
-        SetTextColor(hdc, kTextSecond);
 
-        std::wstring tabLine;
-        for (size_t i = 0; i < win.tabs.size(); ++i)
+        // Tab row: one truncated chip per tab, like the browser tab strip.
+        const RECT rowRc = { cardRc.left + pad, cardRc.top + cardH / 2 + ScalePx(2, dpiI),
+                             cardRc.right - pad, cardRc.bottom - pad };
+        const int rowW = rowRc.right - rowRc.left;
+        const int n    = static_cast<int>(win.tabs.size());
+
+        const int gap      = ScalePx(4, dpiI);
+        const int minChipW = ScalePx(46, dpiI);
+        const int maxChipW = ScalePx(120, dpiI);
+        const int chipPad  = ScalePx(6, dpiI);
+
+        auto clampi = [](int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); };
+
+        std::wstring trailer;
+        if (n > 0 && rowW > minChipW)
         {
-            if (i > 0) tabLine += L"  \u00B7  ";
-            tabLine += win.tabs[i].title;
-        }
-        if (win.tabsStale)
-            tabLine += tabLine.empty() ? L"(stale)" : L"  (stale)";
+            int chipW    = clampi(rowW / n - gap, minChipW, maxChipW);
+            int capacity = (rowW + gap) / (chipW + gap);
+            if (capacity < 1) capacity = 1;
 
-        RECT tabRc = { cardRc.left + pad, cardRc.top + cardH / 2,
-                       cardRc.right - pad, cardRc.bottom - pad };
-        if (!tabLine.empty())
-            DrawTextW(hdc, tabLine.c_str(), -1, &tabRc,
-                      DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+            int trailerW = 0;
+            const bool mayOverflow = capacity < n;
+            if (mayOverflow || win.tabsStale)
+            {
+                trailerW = ScalePx(80, dpiI) + gap;
+                capacity = (rowW - trailerW + gap) / (chipW + gap);
+                if (capacity < 1) capacity = 1;
+            }
+
+            const int visible = capacity < n ? capacity : n;
+
+            int x = rowRc.left;
+            for (int i = 0; i < visible; ++i)
+            {
+                RECT chip = { x, rowRc.top, x + chipW, rowRc.bottom };
+                HBRUSH chipBrush = CreateSolidBrush(kChipBg);
+                FillRect(hdc, &chip, chipBrush);
+                DeleteObject(chipBrush);
+
+                RECT txt = { chip.left + chipPad, chip.top,
+                             chip.right - chipPad, chip.bottom };
+                SetTextColor(hdc, kTextPrimary);
+                DrawTextW(hdc, win.tabs[i].title.c_str(), -1, &txt,
+                          DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+                x += chipW + gap;
+            }
+
+            const int hidden = n - visible;
+            if (hidden > 0)
+            {
+                wchar_t buf[16];
+                swprintf_s(buf, L"+%d", hidden);
+                trailer = buf;
+            }
+            if (win.tabsStale)
+                trailer += trailer.empty() ? L"(stale)" : L" (stale)";
+
+            if (!trailer.empty())
+            {
+                RECT tr = { x, rowRc.top, rowRc.right, rowRc.bottom };
+                SetTextColor(hdc, kTextSecond);
+                DrawTextW(hdc, trailer.c_str(), -1, &tr,
+                          DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+            }
+        }
+        else if (win.tabsStale)
+        {
+            RECT tr = rowRc;
+            SetTextColor(hdc, kTextSecond);
+            DrawTextW(hdc, L"(stale)", -1, &tr,
+                      DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        }
 
         SelectObject(hdc, old);
         DeleteObject(titleFont);
