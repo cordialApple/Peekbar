@@ -34,7 +34,7 @@ performance over ETW.
 | Stage 3 — single-window tabs | ✅ Complete — tabs render per-window on minimize, accepted on Win11 |
 | Stage 4 — multi-window stacks | 🟡 code complete (4.1–4.5 + 4.5a) — §12 row 4 acceptance pending on Windows |
 | Stage 5 — taskbar buttons | ✅ ACCEPTED on Win11 — 5a dock buttons + 5b gap overlay (pills-in-gap, event re-measure, single-host dock fallback); all 5 visual checks pass |
-| Profiler (parallel workstream) | ⬜ unlocked — see `docs/plans/profiler.md` |
+| Profiler (parallel workstream) | 🟡 consumer P.2–P.4 code complete + builds green; P.1 shell emit not done — see `docs/plans/profiler.md` |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
 **Next action: user visual check of Phase 5b, then re-verify Stage 1–4 acceptance (§12) + close Stage 5.**
@@ -92,6 +92,17 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-04 — Profiler consumer P.2–P.4 built (separate `shell_profiler` target under `profiler/`,
+  own CMakeLists, zero shared shell code — hard rule 8). EtwSession: name-derived provider GUID
+  (SHA-1/EventSource algo, runtime — no hardcoded GUID; verified `{C943A625-2D01-532A-B9E9-19613974D9AD}`
+  == .NET reference), StartTraceW real-time + stale-session recovery (ERROR_ALREADY_EXISTS→STOP→retry),
+  EnableTraceEx2, OpenTraceW/ProcessTrace on consumer thread, TDH decode via TdhFormatProperty; Stop()
+  never leaks the session (CloseTrace+ControlTrace STOP, idempotent, dtor-guarded). MetricsView:
+  per-event count/rate/p50/p95/max(duration_us) + shell CPU%/WS/handle sampling; `--csv` per-interval.
+  main: `--raw|--csv|--image|--provider`, Ctrl+C clean stop. Both targets build green (VS2022 Debug);
+  shell target unaffected. Wrote `docs/profiler-project-structure.md` (one repo/two targets rationale).
+  P.1 (shell-side Trace.h + call sites) NOT done — stayed out of src/ per task; shell emits no events yet,
+  so live capture + §12 row P are pending P.1 + elevated run. profiler/README.md documents elevation.
 - 2026-07-04 — 5b debt polish (5b.4). (A) MeasureGap gap-left by geometry (leftKnown + chevron extension)
   → overflow chevron can't be overlapped; Widgets by aid (>=, rect-fail→kInvalid). (C) pill corner radius
   (RoundRect = ellipse diameter). (D) killed startup/reload double-frame: dock defers strip until first

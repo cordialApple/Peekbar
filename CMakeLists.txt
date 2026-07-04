@@ -25,3 +25,7 @@ target_compile_definitions(browser_shell_os PRIVATE
     NTDDI_VERSION=0x0A000004
 )
 target_link_libraries(browser_shell_os PRIVATE shell32 user32 gdi32 psapi ole32 oleaut32 UIAutomationCore)
+
+# Decoupled observability tool: separate target, no shared code, never linked
+# into the shell. One repo, two targets — see docs/profiler-project-structure.md.
+add_subdirectory(profiler)

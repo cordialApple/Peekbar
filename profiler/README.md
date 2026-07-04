@@ -1,0 +1,59 @@
+# shell_profiler
+
+Standalone ETW consumer that measures `browser_shell_os` performance. Separate
+executable, separate build target — never bundled with the shell (hard rule 8).
+The only coupling is the ETW **provider name** `BrowserShellOs.Perf` and the
+**event/field names** in `docs/ARCHITECTURE.md` §10, declared independently in
+`Contract.h`. No shell source or header is included.
+
+## What it does
+
+- Starts a private real-time ETW session and enables the shell's TraceLogging
+  provider, subscribed by the **name-derived GUID** (computed at runtime, so no
+  hardcoded GUID can drift from the name).
+- Decodes the self-describing TraceLogging events with TDH (no manifest).
+- Live console table per event: count, rate/s, and p50/p95/max of `duration_us`.
+- Samples the shell process alongside: CPU %, working set, handle count.
+- `--csv <path>`: one row per interval for offline analysis.
+
+## Build
+
+Two targets in one CMake project. Build just the profiler (shell target idle):
+
+```
+cmake -B build -G "Visual Studio 17 2022"
+cmake --build build --config Debug --target shell_profiler
+```
+
+Or fully standalone, no shell in the tree at all:
+
+```
+cmake -B build-profiler -G "Visual Studio 17 2022" profiler
+cmake --build build-profiler --config Debug
+```
+
+## Run
+
+```
+build\Debug\shell_profiler.exe [--raw] [--csv out.csv] [--image browser_shell_os.exe] [--provider BrowserShellOs.Perf]
+```
+
+- `--raw` prints each decoded event as it arrives instead of the metrics table.
+- Ctrl+C stops the session cleanly (`ControlTraceW(EVENT_TRACE_CONTROL_STOP)`) —
+  the real-time session is never leaked.
+
+## Privileges
+
+Real-time ETW sessions require **elevation** or membership in the
+**Performance Log Users** group (standard ETW rule — documented, not worked
+around). Without it, `StartTraceW`/`EnableTraceEx2` return `ERROR_ACCESS_DENIED`
+(5) and the profiler reports it and exits.
+
+## Current status
+
+Builds green. Live capture from the running shell is **pending** because the
+shell does not yet emit `BrowserShellOs.Perf` events — profiler step P.1
+(shell-side `Trace.h` + call sites) is not implemented. Until then the table
+shows "no events yet". The consumer, session lifecycle, TDH decode, metrics,
+and CSV are complete and exercise correctly against any TraceLogging provider
+of that name.

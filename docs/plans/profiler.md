@@ -9,6 +9,21 @@ and call sites — no files, no threads, no frameworks. `shell_profiler` is a
 separate executable/target; no shared code with the shell. The contract is
 the provider name `BrowserShellOs.Perf` and the event/field names in §10.
 
+## Status
+
+- P.1 — ⬜ NOT DONE. Shell emits no `BrowserShellOs.Perf` events yet (no
+  `src/Trace.h`, no `TraceLoggingWrite` call sites). Deliberately deferred: the
+  profiler workstream was told to stay in its lane and not touch `src/`. Until
+  P.1 lands the live table shows "no events yet".
+- P.2 — ✅ code complete, builds green. Real-time session + name-derived GUID +
+  TDH decode. GUID `{C943A625-2D01-532A-B9E9-19613974D9AD}` verified against the
+  .NET EventSource reference algorithm. Live decode from the shell pending P.1 +
+  elevation.
+- P.3 — ✅ code complete, builds green. Per-event count/rate/p50/p95/max +
+  shell process CPU%/working-set/handle sampling; console table each interval.
+- P.4 — ✅ `--csv <path>` code complete, builds green. §12 row P end-to-end
+  acceptance pending P.1 + a running shell on Windows (elevated).
+
 ## Step P.1 — Shell-side instrumentation (touches shell, minimally)
 
 **Build:** `src/Trace.h`: `TRACELOGGING_DEFINE_PROVIDER` for
