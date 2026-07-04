@@ -37,6 +37,7 @@ private:
     void ShowFanFor(HWND card);
     HWND CardAt(POINT ptClient) const;
     int  ButtonAt(POINT ptClient) const;
+    const std::vector<Button>& DockButtons() const;  // launcher buttons, or none while gap hosts them
     void RestoreWindow(HWND target);
     void ClearHover();
     void RequestSnapshotDebounced(HWND hwnd);
@@ -52,6 +53,8 @@ private:
     HWINEVENTHOOK     m_winEventHookMinimize   = nullptr;
     HWINEVENTHOOK     m_winEventHookNameChange = nullptr;
     HWINEVENTHOOK     m_winEventHookForeground = nullptr;
+    HWINEVENTHOOK     m_winEventHookLocation   = nullptr;
+    bool              m_gapActive              = false;
     std::unique_ptr<TabReader>     m_tabReader;
     std::unique_ptr<FanPopup>      m_fanPopup;
     std::unique_ptr<ConfigWatcher> m_configWatcher;

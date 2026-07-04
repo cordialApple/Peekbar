@@ -33,22 +33,22 @@ performance over ETW.
 | Stage 2 — browser detection | ✅ Complete — all 4 steps + §12 row 2 accepted on Win11 |
 | Stage 3 — single-window tabs | ✅ Complete — tabs render per-window on minimize, accepted on Win11 |
 | Stage 4 — multi-window stacks | 🟡 code complete (4.1–4.5 + 4.5a) — §12 row 4 acceptance pending on Windows |
-| Stage 5 — taskbar buttons | 🟡 Phase 5a COMPLETE; 5b.1 gap-measure ✅ ACCEPTED; 5b.2 buttons-in-gap code done (visual pending); next 5b.3 dynamic re-measure + dock fallback |
+| Stage 5 — taskbar buttons | 🟡 Phase 5a COMPLETE; Phase 5b CODE COMPLETE (5b.1 ACCEPTED; 5b.2 pills-in-gap; 5b.3 event re-measure + dock fallback) — 5b.2/5b.3 user visual check pending |
 | Profiler (parallel workstream) | ⬜ unlocked — see `docs/plans/profiler.md` |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
-**Next action: Phase 5b.3 — dynamic re-measure + dock fallback.** Swap the 500ms poll timer for an
-`EVENT_OBJECT_LOCATIONCHANGE` hook (debounced) on the task list; when the gap overlay is active, HIDE the
-5a dock-hosted button strip (currently BOTH show); when measurement fails or the gap is too small, fall
-back to the dock strip. 5b.1+5b.2 are code-complete — **need a Windows visual check first**: run the exe,
-confirm the automation pills (Gmail/GitHub) appear in the empty taskbar strip between the last app icon
-and the weather widget, that clicking a pill opens it, that empty-gap clicks (and right-click menu) still
-reach the taskbar, and that opening apps shrinks/drops pills. Geometry + UIA element reference:
-`docs/research/win11-taskbar-geometry.md`. `TaskbarOverlayWindow.{h,cpp}` isolates ALL taskbar heuristics
-(hard rule 6). 5b debt carried into 5b.3: overflow-chevron class (live overflowed taskbar), fence the
-`ABM_GETSTATE`/worker-join vs hung explorer at shutdown, bounded one-`Gap` shutdown leak, RoundRect
-radius-vs-diameter (cosmetic). Also still pending user check from 5a: dock grows on minimize; config
-hot-reload ~1s (%LOCALAPPDATA%\browser_shell_os\config.txt).
+**Next action: user visual check of Phase 5b, then re-verify Stage 1–4 acceptance (§12) + close Stage 5.**
+Phase 5b is CODE COMPLETE (5b.1 accepted; 5b.2 pills-in-gap; 5b.3 event-driven re-measure + single-host
+dock fallback). **Windows visual check pending** for 5b.3: open many apps → gap shrinks, pills drop, dock
+strip stays empty; close apps → pills grow back in the gap; make the gap fail (too small) → pills reappear
+in the dock strip (fallback); edit config while gap-active → pills update in-place; empty-gap right-click
+still opens taskbar menu. Then run §12 acceptance rows (esp. row 5b) + re-check Stage 1–4 rows on Windows.
+Geometry + UIA element reference: `docs/research/win11-taskbar-geometry.md`. `TaskbarOverlayWindow.{h,cpp}`
+isolates ALL taskbar heuristics (hard rule 6). Carried debt: host-handoff paints one doubled frame ~tens
+of ms at startup/reload (transient); overflow-chevron class unconfirmed (live overflowed taskbar); fence
+`ABM_GETSTATE`/worker-join vs hung explorer at shutdown; bounded one-`Gap` shutdown leak; RoundRect
+radius-vs-diameter (cosmetic). Also still pending 5a check: dock grows on minimize; config hot-reload ~1s
+(%LOCALAPPDATA%\browser_shell_os\config.txt). Profiler workstream still unstarted (see profiler.md).
 
 Deferred debt:
 - [renderer-tiny-card] Very narrow cards (rowW < ~48px, i.e. many minimized windows) drop the
@@ -92,6 +92,16 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-04 — 5b.3 done → Phase 5b CODE COMPLETE. Event-driven re-measure + single-host fallback. Dropped
+  500ms poll: explorer-PID-scoped EVENT_OBJECT_LOCATIONCHANGE hook (OBJID_WINDOW|CLIENT) → kRemeasureMsg →
+  200ms one-shot debounce → RequestMeasure; also WM_POWERBROADCAST resume (500ms delayed). Overlay posts
+  kGapStateMsg(1/0) to dock on host flip (ApplyGap); DockButtons()=m_gapActive?none:launcher.Buttons() gates
+  dock Paint+ButtonAt → single host (gap active hides dock strip; measure fail → dock fallback). Overlay
+  Create+(dockHwnd,stateMsg); config reload→RequestMeasure (re-eval fit); Refresh() removed; WorkerLoop
+  split-try posts invalid gap on any failure/throw. Bursts (threading/AppBar/fallback): AppBar clean; r1
+  BLOCKED F-02 (reload didn't re-eval fit) → fixed + F-03 (invalid-gap-on-throw) + T-1 (LOCATIONCHANGE obj
+  filter); r2 re-burst → MAY PROCEED. Simplifier: named kResumeRemeasureMs. Build clean. Debt: host-handoff
+  1-frame both-show at startup/reload (transient). Visual check pending. Next: user check 5b + §12 rows.
 - 2026-07-04 — 5b.1 ACCEPTED on Win11 (green outline hugs [Postman,Widgets]); 5b.2 buttons-in-gap code done,
   MAY PROCEED. Overlay now hosts the automation pills: dropped WS_EX_TRANSPARENT, WM_NCHITTEST→HTCLIENT on
   pill / HTTRANSPARENT elsewhere (empty-gap + right-click menu still reach taskbar), WM_LBUTTONUP→Launcher::

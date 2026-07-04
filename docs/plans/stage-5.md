@@ -134,18 +134,35 @@ taskbar normally (right-click menu still opens). **Awaiting user visual/runtime 
 on Windows** (build clean; both dock strip + gap show buttons until 5b.3 adds the
 fallback that hides the dock strip when the gap overlay is active).
 
-### Step 5b.3 — Dynamic re-measure + fallback
-**Build:** re-measure on task-list `EVENT_OBJECT_LOCATIONCHANGE`
-(debounced), `WM_DISPLAYCHANGE`, `ABN_POSCHANGED`. If measurement fails or
-the gap is too small → hide the overlay and fall back to 5a's dock-hosted
-strip automatically.
+### Step 5b.3 — Dynamic re-measure + fallback ✅ (code done 2026-07-04)
+**Built:** dropped the 500ms poll. `EVENT_OBJECT_LOCATIONCHANGE` hook (scoped to
+explorer's PID, filtered to `OBJID_WINDOW`/`OBJID_CLIENT`) → `kRemeasureMsg` → 200ms
+one-shot debounce (`kOverlayTimer`) → `RequestMeasure`. Also re-measures on the
+existing `WM_DISPLAYCHANGE`/`WM_DPICHANGED`/`ABN_POSCHANGED` and on
+`WM_POWERBROADCAST`/`PBT_APMRESUMEAUTOMATIC` (resume, 500ms delayed — sleep-wake
+stale-rect). **Single-host fallback:** overlay posts `kGapStateMsg`(1/0) to the dock
+whenever it starts/stops hosting (in `ApplyGap`, on shown-state flip). Dock sets
+`m_gapActive`; `DockButtons()` = `m_gapActive ? none : m_launcher.Buttons()` gates
+BOTH `Renderer::Paint` and `ButtonAt` → dock strip hides while the gap hosts, shows
+otherwise. Any measure failure (auto-hide / no tray / gap too small / UIA throw) →
+`ApplyGap` hides overlay + posts `kGapStateMsg(0)` → dock strip takes over. Overlay
+`Create` gained `(dockHwnd, stateMsg)`; config reload now `RequestMeasure`s (re-eval
+fit) not just repaints; `Refresh()` removed. Two burst rounds (threading/AppBar/
+fallback): AppBar clean; r1 BLOCKED on reload-not-re-evaluating-fit (F-02) → fixed +
+applied invalid-gap-on-throw (F-03) + LOCATIONCHANGE object filter (T-1); r2 re-burst
+→ MAY PROCEED. Debt: host-handoff paints one doubled frame for ~tens of ms at
+startup + config reload (transient, no stuck state) — one consolidated fix later
+(defer the losing surface's paint until `kGapStateMsg` settles).
 
-**Checkpoint:** §12 row 5b: open 15 apps → overlay yields; close them →
-overlay grows back; simulate failure (rename detection heuristic) → buttons
-appear in the dock instead.
+**Checkpoint:** §12 row 5b: open apps → gap shrinks, pills drop, overlay yields;
+close → grows back; measurement failure → buttons in the dock. **Awaiting user
+visual check on Windows** (build clean).
 
 ## Definition of done
 
-- [ ] 5a passes independently of 5b; 5b failure degrades to 5a silently.
-- [ ] No code injection into explorer.exe anywhere; overlay only.
-- [ ] Stage 1–4 acceptance rows still pass.
+- [x] 5a passes independently of 5b; 5b failure degrades to 5a silently.
+      (DockButtons() single-host gate + kGapStateMsg fallback; code done, user
+      visual check of the failure→dock path pending.)
+- [x] No code injection into explorer.exe anywhere; overlay only. (Read-only UIA +
+      HWND rects + a topmost layered overlay; nothing loaded into explorer.)
+- [ ] Stage 1–4 acceptance rows still pass. (Re-verify on Windows after 5b.)

@@ -22,10 +22,13 @@ namespace
     constexpr UINT    kSnapshotMs       = 150;
     constexpr UINT_PTR kConfigTimer     = 4;
     constexpr UINT    kConfigMs         = 300;
-    // 5b.1 debug scaffold: poll the taskbar gap so the outline tracks apps
-    // opening/closing. 5b.3 replaces this with an EVENT_OBJECT_LOCATIONCHANGE hook.
+    constexpr UINT    kRemeasureMsg     = WM_APP + 5;  // LOCATIONCHANGE hook → debounce
+    constexpr UINT    kGapStateMsg      = WM_APP + 6;  // overlay → dock: gap host active?
+    // 5b.3: re-measure the gap on task-list EVENT_OBJECT_LOCATIONCHANGE, debounced
+    // through this one-shot (RequestMeasure is already coalesced by the overlay worker).
     constexpr UINT_PTR kOverlayTimer    = 5;
-    constexpr UINT    kOverlayMs        = 500;
+    constexpr UINT    kOverlayMs        = 200;
+    constexpr UINT    kResumeRemeasureMs = 500;  // let the shell settle after wake before re-measuring
 
     // Single-instance: safe to keep a plain HWND here for the WinEventProc callback.
     // Written on the UI thread in Create/WM_DESTROY; read on the same thread in WinEventProc
@@ -143,10 +146,18 @@ bool DockWindow::Create(HINSTANCE instance)
     // Stage 5b: host the automation buttons in the taskbar's empty gap. Measure now,
     // then re-measure on a low-frequency timer + on geometry-change events.
     m_taskbarOverlay = std::make_unique<TaskbarOverlayWindow>();
-    if (m_taskbarOverlay->Create(instance, &m_launcher))
+    if (m_taskbarOverlay->Create(instance, &m_launcher, hwnd, kGapStateMsg))
     {
         m_taskbarOverlay->RequestMeasure();
-        SetTimer(hwnd, kOverlayTimer, kOverlayMs, nullptr);
+        // Re-measure when the task list resizes. Scope to explorer's PID so we only
+        // wake on taskbar layout changes, not every window move system-wide.
+        DWORD explorerPid = 0;
+        if (HWND tray = FindWindowW(L"Shell_TrayWnd", nullptr))
+            GetWindowThreadProcessId(tray, &explorerPid);
+        if (explorerPid)
+            m_winEventHookLocation = SetWinEventHook(
+                EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE,
+                nullptr, WinEventProc, explorerPid, 0, WINEVENT_OUTOFCONTEXT);
     }
 
     // Watch the config dir for live edits. Create it first so the watch attaches even
@@ -171,12 +182,19 @@ HWND DockWindow::CardAt(POINT ptClient) const
     return nullptr;
 }
 
+// While the gap overlay hosts the buttons, the dock strip shows none (single host).
+const std::vector<Button>& DockWindow::DockButtons() const
+{
+    static const std::vector<Button> none;
+    return m_gapActive ? none : m_launcher.Buttons();
+}
+
 int DockWindow::ButtonAt(POINT ptClient) const
 {
     RECT rc;
     GetClientRect(m_hwnd, &rc);
     for (const Renderer::ButtonHit& h :
-         Renderer::ButtonLayout(rc, GetDpiForWindow(m_hwnd), m_launcher.Buttons()))
+         Renderer::ButtonLayout(rc, GetDpiForWindow(m_hwnd), DockButtons()))
         if (PtInRect(&h.rect, ptClient)) return h.index;
     return -1;
 }
@@ -337,7 +355,16 @@ void DockWindow::AppBarRemove(HWND hwnd)
 void CALLBACK DockWindow::WinEventProc(HWINEVENTHOOK, DWORD event, HWND hwnd,
                                         LONG idObject, LONG, DWORD, DWORD) noexcept
 {
-    if (idObject != OBJID_WINDOW || !hwnd || !s_dockHwnd) return;
+    if (!hwnd || !s_dockHwnd) return;
+    if (event == EVENT_OBJECT_LOCATIONCHANGE)  // taskbar layout moved → re-measure gap
+    {
+        // Window + client only (XAML task list resizes as OBJID_CLIENT); skip
+        // cursor/caret/scrollbar noise.
+        if (idObject == OBJID_WINDOW || idObject == OBJID_CLIENT)
+            PostMessageW(s_dockHwnd, kRemeasureMsg, 0, 0);
+        return;
+    }
+    if (idObject != OBJID_WINDOW) return;
     PostMessageW(s_dockHwnd, kWindowEventMsg,
                  static_cast<WPARAM>(event), reinterpret_cast<LPARAM>(hwnd));
 }
@@ -355,7 +382,7 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         HDC hdc = BeginPaint(hwnd, &ps);
         RECT rc;
         GetClientRect(hwnd, &rc);
-        Renderer::Paint(hdc, rc, GetDpiForWindow(hwnd), m_store, m_launcher.Buttons());
+        Renderer::Paint(hdc, rc, GetDpiForWindow(hwnd), m_store, DockButtons());
         EndPaint(hwnd, &ps);
         return 0;
     }
@@ -480,13 +507,33 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             KillTimer(hwnd, kConfigTimer);
             m_launcher.Load();
             InvalidateRect(hwnd, nullptr, FALSE);
-            if (m_taskbarOverlay) m_taskbarOverlay->Refresh();  // gap pills reflect new config
+            // Re-measure (not just repaint): the new config may change which host fits,
+            // so ApplyGap must re-evaluate and re-post the gap-active state.
+            if (m_taskbarOverlay) m_taskbarOverlay->RequestMeasure();
         }
         else if (wparam == kOverlayTimer)
         {
+            KillTimer(hwnd, kOverlayTimer);  // one-shot debounce
             if (m_taskbarOverlay) m_taskbarOverlay->RequestMeasure();
         }
         return 0;
+
+    case kRemeasureMsg:
+        // Coalesce a LOCATIONCHANGE burst into one measure after 200ms of quiet.
+        SetTimer(hwnd, kOverlayTimer, kOverlayMs, nullptr);
+        return 0;
+
+    case kGapStateMsg:
+        // Overlay took over / gave up hosting the buttons → flip the dock fallback.
+        m_gapActive = (wparam != 0);
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return 0;
+
+    case WM_POWERBROADCAST:
+        // Resume from sleep can leave a stale task-list rect; re-measure after a beat.
+        if (wparam == PBT_APMRESUMEAUTOMATIC)
+            SetTimer(hwnd, kOverlayTimer, kResumeRemeasureMs, nullptr);
+        return TRUE;
 
     case kConfigChangedMsg:
         // Coalesce an editor's multi-write burst into one reload.
@@ -589,6 +636,7 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         KillTimer(hwnd, kSnapshotTimer);
         KillTimer(hwnd, kConfigTimer);
         KillTimer(hwnd, kOverlayTimer);
+        if (m_winEventHookLocation)   { UnhookWinEvent(m_winEventHookLocation);   m_winEventHookLocation   = nullptr; }
         if (m_winEventHookForeground) { UnhookWinEvent(m_winEventHookForeground); m_winEventHookForeground = nullptr; }
         if (m_winEventHookNameChange) { UnhookWinEvent(m_winEventHookNameChange); m_winEventHookNameChange = nullptr; }
         if (m_winEventHookMinimize)   { UnhookWinEvent(m_winEventHookMinimize);   m_winEventHookMinimize   = nullptr; }

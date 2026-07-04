@@ -26,15 +26,15 @@ public:
     TaskbarOverlayWindow(const TaskbarOverlayWindow&) = delete;
     TaskbarOverlayWindow& operator=(const TaskbarOverlayWindow&) = delete;
 
-    bool Create(HINSTANCE instance, const Launcher* launcher);
+    // dockHwnd/stateMsg: the overlay posts stateMsg (wparam = 1 active / 0 inactive)
+    // whenever it starts/stops hosting the buttons, so the dock can hide/show its
+    // own fallback strip (5b.3).
+    bool Create(HINSTANCE instance, const Launcher* launcher, HWND dockHwnd, UINT stateMsg);
     void Destroy();
 
     // Ask the worker to re-measure (non-blocking). Safe to call from a timer or
     // ABN_POSCHANGED / WM_DISPLAYCHANGE / WM_DPICHANGED on the UI thread.
     void RequestMeasure();
-
-    // Repaint the hosted buttons (e.g. after a config hot-reload). UI thread.
-    void Refresh();
 
     HWND Hwnd() const { return m_hwnd; }
 
@@ -54,6 +54,8 @@ private:
     HWND            m_hwnd     = nullptr;
     bool            m_shown    = false;
     const Launcher* m_launcher = nullptr;
+    HWND            m_dockHwnd = nullptr;
+    UINT            m_stateMsg = 0;
 
     std::thread             m_thread;
     std::mutex              m_mutex;

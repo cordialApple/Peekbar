@@ -63,9 +63,12 @@ TaskbarOverlayWindow::~TaskbarOverlayWindow()
     Destroy();
 }
 
-bool TaskbarOverlayWindow::Create(HINSTANCE instance, const Launcher* launcher)
+bool TaskbarOverlayWindow::Create(HINSTANCE instance, const Launcher* launcher,
+                                  HWND dockHwnd, UINT stateMsg)
 {
     m_launcher = launcher;
+    m_dockHwnd = dockHwnd;
+    m_stateMsg = stateMsg;
 
     WNDCLASSEXW wc = {};
     wc.cbSize        = sizeof(wc);
@@ -142,9 +145,13 @@ void TaskbarOverlayWindow::WorkerLoop()
             m_pending = false;
         }
 
+        // On any measure failure (incl. an unexpected throw) post an invalid gap so
+        // ApplyGap hides the overlay and the dock falls back — never freeze stale.
+        Gap g = { {}, false };
+        try { if (automation) g = MeasureGap(automation.Get()); }
+        catch (...) {}
         try
         {
-            Gap g = automation ? MeasureGap(automation.Get()) : Gap{ {}, false };
             auto* payload = new Gap(g);
             if (!PostMessageW(m_hwnd, kApplyGapMsg, 0, reinterpret_cast<LPARAM>(payload)))
                 delete payload;
@@ -292,19 +299,19 @@ void TaskbarOverlayWindow::ApplyGap(const Gap& g)
                    client, GetDpiForWindow(m_hwnd), m_launcher->Buttons()).empty();
     }
 
+    const bool was = m_shown;
     if (!fits)
     {
         if (m_shown) { ShowWindow(m_hwnd, SW_HIDE); m_shown = false; }
-        return;
     }
-    if (!m_shown) { ShowWindow(m_hwnd, SW_SHOWNOACTIVATE); m_shown = true; }
-    InvalidateRect(m_hwnd, nullptr, TRUE);
-    UpdateWindow(m_hwnd);
-}
-
-void TaskbarOverlayWindow::Refresh()
-{
-    if (m_hwnd && m_shown) InvalidateRect(m_hwnd, nullptr, TRUE);
+    else
+    {
+        if (!m_shown) { ShowWindow(m_hwnd, SW_SHOWNOACTIVATE); m_shown = true; }
+        InvalidateRect(m_hwnd, nullptr, TRUE);
+        UpdateWindow(m_hwnd);
+    }
+    if (m_shown != was && m_dockHwnd)
+        PostMessageW(m_dockHwnd, m_stateMsg, m_shown ? 1 : 0, 0);  // dock hides its strip while we host
 }
 
 int TaskbarOverlayWindow::ButtonAt(POINT ptClient) const
