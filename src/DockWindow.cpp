@@ -13,12 +13,15 @@ namespace
     constexpr UINT    kCallbackMsg      = WM_APP + 1;
     constexpr UINT    kWindowEventMsg   = WM_APP + 2;
     constexpr UINT    kTabSnapshotMsg   = WM_APP + 3;
+    constexpr UINT    kConfigChangedMsg = WM_APP + 4;
     constexpr UINT_PTR kDebounceTimer   = 1;
     constexpr UINT    kDebounceMs       = 200;
     constexpr UINT_PTR kHoverTimer      = 2;
     constexpr UINT    kHoverMs          = 250;
     constexpr UINT_PTR kSnapshotTimer   = 3;
     constexpr UINT    kSnapshotMs       = 150;
+    constexpr UINT_PTR kConfigTimer     = 4;
+    constexpr UINT    kConfigMs         = 300;
 
     // Single-instance: safe to keep a plain HWND here for the WinEventProc callback.
     // Written on the UI thread in Create/WM_DESTROY; read on the same thread in WinEventProc
@@ -131,7 +134,17 @@ bool DockWindow::Create(HINSTANCE instance)
     m_fanPopup = std::make_unique<FanPopup>();
     m_fanPopup->Create(instance);
 
-    m_launcher.Load();  // Stage 5a: automation-button config (render/execute land in 5a.2–5a.3)
+    m_launcher.Load();  // Stage 5a: automation-button config
+
+    // Watch the config dir for live edits. Create it first so the watch attaches even
+    // before the user writes a config (CreateDirectoryW is a no-op if it exists).
+    const std::wstring cfgDir = Launcher::ConfigDir();
+    if (!cfgDir.empty())
+    {
+        CreateDirectoryW(cfgDir.c_str(), nullptr);
+        m_configWatcher = std::make_unique<ConfigWatcher>(hwnd, kConfigChangedMsg);
+        m_configWatcher->Start(cfgDir, Launcher::ConfigFileName());
+    }
 
     return true;
 }
@@ -445,6 +458,17 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
                     m_tabReader->RequestSnapshot(h);
             m_pendingSnapshots.clear();
         }
+        else if (wparam == kConfigTimer)
+        {
+            KillTimer(hwnd, kConfigTimer);
+            m_launcher.Load();
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        return 0;
+
+    case kConfigChangedMsg:
+        // Coalesce an editor's multi-write burst into one reload.
+        SetTimer(hwnd, kConfigTimer, kConfigMs, nullptr);
         return 0;
 
     case kTabSnapshotMsg:
@@ -534,11 +558,13 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         return 0;
 
     case WM_DESTROY:
+        m_configWatcher.reset();  // join watcher worker before teardown
         m_tabReader.reset();  // join worker before unhooking and removing appbar
         m_fanPopup.reset();
         KillTimer(hwnd, kDebounceTimer);
         KillTimer(hwnd, kHoverTimer);
         KillTimer(hwnd, kSnapshotTimer);
+        KillTimer(hwnd, kConfigTimer);
         if (m_winEventHookForeground) { UnhookWinEvent(m_winEventHookForeground); m_winEventHookForeground = nullptr; }
         if (m_winEventHookNameChange) { UnhookWinEvent(m_winEventHookNameChange); m_winEventHookNameChange = nullptr; }
         if (m_winEventHookMinimize)   { UnhookWinEvent(m_winEventHookMinimize);   m_winEventHookMinimize   = nullptr; }

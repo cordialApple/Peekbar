@@ -33,17 +33,18 @@ performance over ETW.
 | Stage 2 — browser detection | ✅ Complete — all 4 steps + §12 row 2 accepted on Win11 |
 | Stage 3 — single-window tabs | ✅ Complete — tabs render per-window on minimize, accepted on Win11 |
 | Stage 4 — multi-window stacks | 🟡 code complete (4.1–4.5 + 4.5a) — §12 row 4 acceptance pending on Windows |
-| Stage 5 — taskbar buttons | 🟡 in progress — 5a.1–5a.3 built (dock-hosted buttons); 5a.3 awaiting user visual OK; next 5a.4 hot-reload |
+| Stage 5 — taskbar buttons | 🟡 Phase 5a COMPLETE (5a.1–5a.4 dock-hosted buttons); next Phase 5b taskbar overlay |
 | Profiler (parallel workstream) | ⬜ unlocked — see `docs/plans/profiler.md` |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
-**Next action: user visual acceptance of 5a.3 button strip, then Stage 5a.4 — config hot-reload**
-(ReadDirectoryChangesW on a worker → post to dock → reload+repaint; non-visual). See `stage-5.md`.
-Done this session: Stage 4 complete incl. 4.5b vertical-stack (dynamic dock height, cap 4) + recolor
-(bg #00A2ED, active #f87e73); Stage 5a.1 config load + 5a.2 actions + 5a.3 button strip (right-column
-overlay pills, left-click → Launcher::Execute). Pending user runtime/visual check: dock grows as windows
-minimize; colors; pill buttons top-right; click a pill opens its url/shortcut. Sample config.txt (2 url
-buttons) already written to %LOCALAPPDATA%\browser_shell_os\.
+**Next action: Phase 5b — taskbar-gap overlay (the headline feature). Start 5b.1 gap measurement.**
+`TaskbarOverlayWindow.{h,cpp}` — ALL taskbar-geometry heuristics isolated here (hard rule 6). 5b is
+higher-risk (explorer internals); 5a is the permanent fallback. See `docs/plans/stage-5.md` (re-read +
+refine 5b against current code first). Some 5b steps are visual (overlay outline/buttons) → gate those.
+Done this session: Stage 4 complete + 4.5b vertical-stack + recolor; **Phase 5a COMPLETE** (5a.1 config
+load, 5a.2 actions, 5a.3 button strip, 5a.4 hot-reload). Pending user runtime/visual check: dock grows on
+minimize; colors; ~half-size pill buttons top-right (Gmail+GitHub); click opens; edit config.txt → live
+reload ~1s. Config at %LOCALAPPDATA%\browser_shell_os\config.txt.
 
 Deferred debt:
 - [renderer-tiny-card] Very narrow cards (rowW < ~48px, i.e. many minimized windows) drop the
@@ -87,6 +88,13 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-04 — Stage 5a.4 done + Phase 5a complete: config hot-reload. ConfigWatcher.{h,cpp} worker
+  (overlapped ReadDirectoryChangesW + stop-event; pending-flag drain teardown so no break path deadlocks
+  or leaks). DockWindow: kConfigChangedMsg → 300ms kConfigTimer debounce → Launcher.Load()+repaint;
+  Create makes dir + starts watcher; WM_DESTROY joins before AppBarRemove. Launcher split into
+  ConfigDir/ConfigFileName/ConfigPath. Burst (threading+AppBar+resource): fixed BLOCKING undrained
+  overlapped-IO teardown (CancelIo→GetOverlappedResult(TRUE), guarded by pending) → re-burst →
+  MAY PROCEED. Also this session: button pills halved (user), Search→Gmail config. Next: Phase 5b overlay.
 - 2026-07-04 — Stage 5a.3 done (awaiting user visual OK): button strip. User chose right-column overlay
   (pills top-right over cards). Renderer::ButtonLayout (single paint+hit-test source) + DrawButton
   (RoundRect light kButtonBg pill, radius clamp, ellipsized label). Paint draws buttons last. DockWindow

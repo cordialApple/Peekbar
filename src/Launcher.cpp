@@ -80,16 +80,28 @@ namespace
     }
 }
 
-std::wstring Launcher::ConfigPath()
+std::wstring Launcher::ConfigDir()
 {
     PWSTR local = nullptr;
     const HRESULT hr = SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &local);
-    std::wstring path;
-    if (SUCCEEDED(hr) && local) path = local;
+    std::wstring dir;
+    if (SUCCEEDED(hr) && local) dir = local;
     CoTaskMemFree(local);  // no-op on null; safe on every path
-    if (path.empty()) return L"";
-    path += L"\\browser_shell_os\\config.txt";
-    return path;
+    if (dir.empty()) return L"";
+    dir += L"\\browser_shell_os";
+    return dir;
+}
+
+std::wstring Launcher::ConfigFileName()
+{
+    return L"config.txt";
+}
+
+std::wstring Launcher::ConfigPath()
+{
+    const std::wstring dir = ConfigDir();
+    if (dir.empty()) return L"";
+    return dir + L"\\" + ConfigFileName();
 }
 
 void Launcher::Load()

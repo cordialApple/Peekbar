@@ -30,7 +30,9 @@ public:
     // never blocks the dock's UI pump (CLAUDE.md rule 5).
     void Execute(const Button& b) const;
 
-    static std::wstring ConfigPath();
+    static std::wstring ConfigDir();       // %LOCALAPPDATA%\browser_shell_os
+    static std::wstring ConfigFileName();  // config.txt
+    static std::wstring ConfigPath();      // ConfigDir()\ConfigFileName()
 
 private:
     std::vector<Button> m_buttons;

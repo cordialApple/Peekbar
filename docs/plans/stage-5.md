@@ -59,12 +59,24 @@ PROCEED.
 runs; buttons persist across restart. **Awaiting user visual acceptance** (pill
 look; empty-state text vs pills; light-pill legibility where blue shows).
 
-### Step 5a.4 — Config hot-reload
-**Build:** watch the config directory (`ReadDirectoryChangesW` on a worker,
-post to dock thread); reload and repaint on change.
+### Step 5a.4 — Config hot-reload ✅ (done 2026-07-04)
+**Built:** `src/ConfigWatcher.{h,cpp}` — worker thread, overlapped
+`ReadDirectoryChangesW` on the config dir; matches `config.txt` →
+`PostMessageW(kConfigChangedMsg)`. Manual-reset stop-event +
+`WaitForMultipleObjects` cancels the blocking wait; teardown drains a pending
+I/O (`CancelIo` → `GetOverlappedResult(TRUE)`, guarded by a `pending` flag so no
+break path deadlocks). `DockWindow`: `kConfigChangedMsg` → 300ms `kConfigTimer`
+debounce → `m_launcher.Load()` + repaint on the UI thread; `Create` makes the
+dir + starts the watcher; `WM_DESTROY` joins the watcher before `AppBarRemove`.
+`Launcher` refactored → `ConfigDir()`/`ConfigFileName()`/`ConfigPath()`. Burst
+(threading + AppBar + resource): fixed a BLOCKING undrained-overlapped-I/O
+teardown → re-burst → adjudicator MAY PROCEED.
 
 **Checkpoint:** edit config while running → buttons update within ~1s, no
-restart.
+restart. (Runtime check pending on Windows.)
+
+## Phase 5a COMPLETE (code): dock-hosted automation buttons — config → actions
+## → render → hot-reload. Permanent fallback for 5b. Next: Phase 5b taskbar overlay.
 
 ## Phase 5b — overlay on the taskbar's empty region
 
