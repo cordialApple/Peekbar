@@ -33,7 +33,7 @@ performance over ETW.
 | Stage 2 — browser detection | ✅ Complete — all 4 steps + §12 row 2 accepted on Win11 |
 | Stage 3 — single-window tabs | ✅ Complete — tabs render per-window on minimize, accepted on Win11 |
 | Stage 4 — multi-window stacks | 🟡 code complete (4.1–4.5 + 4.5a) — §12 row 4 acceptance pending on Windows |
-| Stage 5 — taskbar buttons | 🟡 Phase 5a COMPLETE; Phase 5b CODE COMPLETE (5b.1 ACCEPTED; 5b.2 pills-in-gap; 5b.3 event re-measure + dock fallback) — 5b.2/5b.3 user visual check pending |
+| Stage 5 — taskbar buttons | ✅ ACCEPTED on Win11 — 5a dock buttons + 5b gap overlay (pills-in-gap, event re-measure, single-host dock fallback); all 5 visual checks pass |
 | Profiler (parallel workstream) | ⬜ unlocked — see `docs/plans/profiler.md` |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
@@ -92,6 +92,9 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-04 — Stage 5 ACCEPTED on Win11: all 5 5b visual checks pass (pills in gap; open apps → gap
+  shrinks/pills drop; close → grow back; gap fail → dock-strip fallback; empty-gap right-click → taskbar
+  menu; config edit → live pill update). All 5 stages now accepted. Next: profiler or deployment workstream.
 - 2026-07-04 — 5b.3 done → Phase 5b CODE COMPLETE. Event-driven re-measure + single-host fallback. Dropped
   500ms poll: explorer-PID-scoped EVENT_OBJECT_LOCATIONCHANGE hook (OBJID_WINDOW|CLIENT) → kRemeasureMsg →
   200ms one-shot debounce → RequestMeasure; also WM_POWERBROADCAST resume (500ms delayed). Overlay posts
