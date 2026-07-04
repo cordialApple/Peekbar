@@ -9,6 +9,7 @@
 #include "FanPopup.h"
 #include "Launcher.h"
 #include "ConfigWatcher.h"
+#include "TaskbarOverlayWindow.h"
 
 // Dock window. UI thread only owns this (CLAUDE.md rule 5).
 class DockWindow
@@ -54,6 +55,7 @@ private:
     std::unique_ptr<TabReader>     m_tabReader;
     std::unique_ptr<FanPopup>      m_fanPopup;
     std::unique_ptr<ConfigWatcher> m_configWatcher;
+    std::unique_ptr<TaskbarOverlayWindow> m_taskbarOverlay;
     Launcher                       m_launcher;
     HWND                       m_hoverCard    = nullptr;
     bool                       m_mouseTracking = false;

@@ -33,18 +33,20 @@ performance over ETW.
 | Stage 2 — browser detection | ✅ Complete — all 4 steps + §12 row 2 accepted on Win11 |
 | Stage 3 — single-window tabs | ✅ Complete — tabs render per-window on minimize, accepted on Win11 |
 | Stage 4 — multi-window stacks | 🟡 code complete (4.1–4.5 + 4.5a) — §12 row 4 acceptance pending on Windows |
-| Stage 5 — taskbar buttons | 🟡 Phase 5a COMPLETE (5a.1–5a.4 dock-hosted buttons); next Phase 5b taskbar overlay |
+| Stage 5 — taskbar buttons | 🟡 Phase 5a COMPLETE; 5b.1 gap-measurement + debug outline code done (visual check pending); next 5b.2 overlay window + click-through |
 | Profiler (parallel workstream) | ⬜ unlocked — see `docs/plans/profiler.md` |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
-**Next action: Phase 5b — taskbar-gap overlay (the headline feature). Start 5b.1 gap measurement.**
-`TaskbarOverlayWindow.{h,cpp}` — ALL taskbar-geometry heuristics isolated here (hard rule 6). 5b is
-higher-risk (explorer internals); 5a is the permanent fallback. See `docs/plans/stage-5.md` (re-read +
-refine 5b against current code first). Some 5b steps are visual (overlay outline/buttons) → gate those.
-Done this session: Stage 4 complete + 4.5b vertical-stack + recolor; **Phase 5a COMPLETE** (5a.1 config
-load, 5a.2 actions, 5a.3 button strip, 5a.4 hot-reload). Pending user runtime/visual check: dock grows on
-minimize; colors; ~half-size pill buttons top-right (Gmail+GitHub); click opens; edit config.txt → live
-reload ~1s. Config at %LOCALAPPDATA%\browser_shell_os\config.txt.
+**Next action: Phase 5b.2 — overlay window + click-through.** Host the 5a `Launcher` buttons in the
+measured taskbar gap (borderless topmost tool window; `WM_NCHITTEST`→`HTTRANSPARENT` outside button
+rects). 5b.1 (gap measurement + debug outline) is code-complete — **needs a Windows visual/runtime check
+first**: run the exe, confirm the green outline hugs the empty taskbar strip between the last task button
+and the tray, centered + left layouts, and moves as apps open/close. Geometry reference:
+`docs/research/win11-taskbar-geometry.md`. `TaskbarOverlayWindow.{h,cpp}` isolates ALL taskbar heuristics
+(hard rule 6). 5b debt carried into 5b.3: fence the `ABM_GETSTATE` explorer round-trip (F-02),
+cache the explorer-owner check (F-04), swap the 500ms poll timer for the `EVENT_OBJECT_LOCATIONCHANGE`
+hook. Also still pending user check from 5a: dock grows on minimize; pill buttons top-right; config
+hot-reload ~1s (%LOCALAPPDATA%\browser_shell_os\config.txt).
 
 Deferred debt:
 - [renderer-tiny-card] Very narrow cards (rowW < ~48px, i.e. many minimized windows) drop the
@@ -88,6 +90,18 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-04 — Phase 5b started; 5b.1 gap-measurement + debug outline code done. win32-scout mapped Win11
+  taskbar (per-button MSTaskListWClass gone → XAML; MSTaskSwWClass container rect survives → pure HWND-rect
+  path works Win10+Win11, no UIA, stays on UI thread) → saved `docs/research/win11-taskbar-geometry.md`.
+  New `TaskbarOverlayWindow.{h,cpp}`: FindTaskbar (Shell_TrayWnd + explorer.exe owner verify), MeasureGap
+  ([MSTaskSwWClass.right, TrayNotifyWnd.left]×tray height) with rebar-or-tray fallback, sleep-wake stale-
+  rect sanity check, ABM_GETSTATE auto-hide bail, min-gap scaled by taskbar-monitor DPI (GetDpiForWindow
+  (tray), cross-process); click-through layered outline (WS_EX_TRANSPARENT|LAYERED, LWA_COLORKEY, green
+  frame). DockWindow owns it: Update() on Create + 500ms kOverlayTimer + ABN_POSCHANGED/DISPLAYCHANGE/
+  DPICHANGED; WM_DESTROY reset + WM_ENDSESSION KillTimer. Never registers an AppBar → no ABM_REMOVE
+  obligation. Inspector burst (AppBar/threading/DPI/visual) → adjudicator MAY PROCEED; applied F-01
+  (taskbar-monitor DPI), F-03 (endsession KillTimer), F-05 (dead member); F-02/F-04 → 5b.3 debt.
+  Simplifier folded 6 bail-outs into one kInvalid sentinel. Build clean. Visual check pending on Windows.
 - 2026-07-04 — Stage 5a.4 done + Phase 5a complete: config hot-reload. ConfigWatcher.{h,cpp} worker
   (overlapped ReadDirectoryChangesW + stop-event; pending-flag drain teardown so no break path deadlocks
   or leaks). DockWindow: kConfigChangedMsg → 300ms kConfigTimer debounce → Launcher.Load()+repaint;

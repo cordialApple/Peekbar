@@ -22,6 +22,10 @@ namespace
     constexpr UINT    kSnapshotMs       = 150;
     constexpr UINT_PTR kConfigTimer     = 4;
     constexpr UINT    kConfigMs         = 300;
+    // 5b.1 debug scaffold: poll the taskbar gap so the outline tracks apps
+    // opening/closing. 5b.3 replaces this with an EVENT_OBJECT_LOCATIONCHANGE hook.
+    constexpr UINT_PTR kOverlayTimer    = 5;
+    constexpr UINT    kOverlayMs        = 500;
 
     // Single-instance: safe to keep a plain HWND here for the WinEventProc callback.
     // Written on the UI thread in Create/WM_DESTROY; read on the same thread in WinEventProc
@@ -135,6 +139,15 @@ bool DockWindow::Create(HINSTANCE instance)
     m_fanPopup->Create(instance);
 
     m_launcher.Load();  // Stage 5a: automation-button config
+
+    // Stage 5b.1: debug outline over the taskbar's empty gap. Measure now, then
+    // re-measure on a low-frequency timer + on geometry-change events.
+    m_taskbarOverlay = std::make_unique<TaskbarOverlayWindow>();
+    if (m_taskbarOverlay->Create(instance))
+    {
+        m_taskbarOverlay->Update();
+        SetTimer(hwnd, kOverlayTimer, kOverlayMs, nullptr);
+    }
 
     // Watch the config dir for live edits. Create it first so the watch attaches even
     // before the user writes a config (CreateDirectoryW is a no-op if it exists).
@@ -351,6 +364,7 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         if (wparam == ABN_POSCHANGED || wparam == ABN_STATECHANGE)
         {
             AppBarSetPos(hwnd);
+            if (m_taskbarOverlay) m_taskbarOverlay->Update();  // taskbar moved/auto-hide toggled
         }
         else if (wparam == ABN_FULLSCREENAPP)
         {
@@ -362,11 +376,13 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
     case WM_DISPLAYCHANGE:
         AppBarSetPos(hwnd);
+        if (m_taskbarOverlay) m_taskbarOverlay->Update();
         InvalidateRect(hwnd, nullptr, TRUE);  // width may change → repaint whole client
         return 0;
 
     case WM_DPICHANGED:
         AppBarSetPos(hwnd);
+        if (m_taskbarOverlay) m_taskbarOverlay->Update();
         InvalidateRect(hwnd, nullptr, TRUE);  // repaint all at new DPI, not just exposed strip
         return 0;
 
@@ -376,6 +392,7 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
     case WM_ENDSESSION:
         if (wparam)
         {
+            KillTimer(hwnd, kOverlayTimer);  // don't let a queued tick Update() into a dying explorer
             AppBarRemove(hwnd);
             PostQuitMessage(0);
         }
@@ -463,6 +480,10 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             KillTimer(hwnd, kConfigTimer);
             m_launcher.Load();
             InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        else if (wparam == kOverlayTimer)
+        {
+            if (m_taskbarOverlay) m_taskbarOverlay->Update();
         }
         return 0;
 
@@ -561,10 +582,12 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         m_configWatcher.reset();  // join watcher worker before teardown
         m_tabReader.reset();  // join worker before unhooking and removing appbar
         m_fanPopup.reset();
+        m_taskbarOverlay.reset();
         KillTimer(hwnd, kDebounceTimer);
         KillTimer(hwnd, kHoverTimer);
         KillTimer(hwnd, kSnapshotTimer);
         KillTimer(hwnd, kConfigTimer);
+        KillTimer(hwnd, kOverlayTimer);
         if (m_winEventHookForeground) { UnhookWinEvent(m_winEventHookForeground); m_winEventHookForeground = nullptr; }
         if (m_winEventHookNameChange) { UnhookWinEvent(m_winEventHookNameChange); m_winEventHookNameChange = nullptr; }
         if (m_winEventHookMinimize)   { UnhookWinEvent(m_winEventHookMinimize);   m_winEventHookMinimize   = nullptr; }

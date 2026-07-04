@@ -80,15 +80,31 @@ restart. (Runtime check pending on Windows.)
 
 ## Phase 5b — overlay on the taskbar's empty region
 
-### Step 5b.1 — Gap measurement
-**Build:** `src/TaskbarOverlayWindow.{h,cpp}` (ALL taskbar-geometry
-heuristics live here — hard rule 6). Find `Shell_TrayWnd`; measure the empty
-gap between the task-button list and the tray via UIA over the taskbar tree
-(Win11) / child-window rects (`ReBarWindow32`, Win10). Debug overlay outline
-only.
+### Step 5b.1 — Gap measurement ✅ (code done 2026-07-04)
+**Built:** `src/TaskbarOverlayWindow.{h,cpp}` (ALL taskbar-geometry heuristics
+here — hard rule 6). Scout (`docs/research/win11-taskbar-geometry.md`) settled the
+approach: on Win11 the per-button `MSTaskListWClass` is gone (XAML islands), but
+the `MSTaskSwWClass` *container* rect still exists — so a **pure HWND-rect** path
+works on both Win10 and Win11, no UIA needed (keeps measurement on the UI thread,
+non-blocking). `FindTaskbar()` finds `Shell_TrayWnd` and verifies explorer.exe
+owner (class-name spoofing guard). `MeasureGap()` = `[MSTaskSwWClass.right,
+TrayNotifyWnd.left]` × full tray height, with: rebar-or-tray fallback for the task
+container, sleep-wake stale-rect sanity check (task rect must nest inside tray),
+`SHAppBarMessage(ABM_GETSTATE)` auto-hide bail, min-gap threshold scaled by the
+**taskbar monitor's** DPI (`GetDpiForWindow(tray)`, cross-process). Debug outline
+= click-through layered window (`WS_EX_TRANSPARENT|LAYERED`, `LWA_COLORKEY`) with
+a bright green frame. `DockWindow` owns it; `Update()` fires from `Create`, a
+500ms `kOverlayTimer` (5b.1 scaffold — 5b.3 swaps in the `LOCATIONCHANGE` hook),
+`ABN_POSCHANGED`, `WM_DISPLAYCHANGE`, `WM_DPICHANGED`; torn down in `WM_DESTROY`
+(+ `KillTimer` in `WM_ENDSESSION`). Overlay never registers an AppBar → no
+ABM_REMOVE obligation. Burst (AppBar/threading/DPI/visual) → adjudicator
+MAY PROCEED; applied F-01 (taskbar-monitor DPI), F-03 (endsession KillTimer),
+F-05 (dead member). Debt for 5b.3: fence the `ABM_GETSTATE` explorer round-trip
+(F-02), cache explorer-owner check (F-04).
 
-**Checkpoint:** outline hugs the empty region on Win10 and Win11, centered
-and left-aligned taskbar layouts; opening/closing apps moves it correctly.
+**Checkpoint:** outline hugs the empty region on Win10 and Win11, centered and
+left-aligned layouts; opening/closing apps moves it. **Awaiting user visual/
+runtime check on Windows** (build clean; can't verify placement off-Windows).
 
 ### Step 5b.2 — Overlay window + click-through
 **Build:** borderless topmost tool window positioned in the measured gap;
