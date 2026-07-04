@@ -155,8 +155,24 @@ startup + config reload (transient, no stuck state) — one consolidated fix lat
 (defer the losing surface's paint until `kGapStateMsg` settles).
 
 **Checkpoint:** §12 row 5b: open apps → gap shrinks, pills drop, overlay yields;
-close → grows back; measurement failure → buttons in the dock. **Awaiting user
-visual check on Windows** (build clean).
+close → grows back; measurement failure → buttons in the dock. **ACCEPTED on Win11**
+(all 5 checks pass).
+
+### Step 5b.4 — debt polish ✅ (done 2026-07-04)
+**Built:** cleaned the logged 5b debt. (A) `MeasureGap` gap-left-edge now geometric —
+`leftKnown` = rightmost KNOWN task button, then extend over unknown-class children in
+`[leftKnown, rightBound]` → an overflow "show more" chevron can't be overlapped
+regardless of its class; Widgets decided by aid (`>=` so apps-abutting-Widgets → zero
+gap → dock fallback, never overlap); a failed Widgets rect → `kInvalid` (safe
+fallback). (C) pill corner radius fixed (RoundRect takes ellipse diameter). (D)
+startup/reload double-frame killed: dock defers its strip until the first host verdict
+(`m_gapResolved`); overlay posts state on first measure (`m_statePosted`); Create arms
+a one-shot `kOverlayTimer` backstop so a lost first-post self-heals. (B — AppBarRemove-
+first — was tried then REVERTED: `ABM_REMOVE` is itself a blocking `SendMessage`, so it
+can't outrun a hung explorer; the hung-explorer strip block is inherent, no app-level
+fix.) Two burst rounds (AppBar/threading/visual-geometry): AppBar clean; r1 MAY PROCEED
+w/ warnings (revert B, refine A, arm backstop) → applied; r2 re-burst found + fixed
+Widgets-rect-fail overlap + dead `others` push → final MAY PROCEED. No residual debt.
 
 ## Definition of done
 

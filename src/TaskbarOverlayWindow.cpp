@@ -7,6 +7,7 @@
 #include <wrl/client.h>
 #include <cwchar>
 #include <string>
+#include <vector>
 
 using namespace Paint;
 using Microsoft::WRL::ComPtr;
@@ -225,8 +226,13 @@ TaskbarOverlayWindow::Gap TaskbarOverlayWindow::MeasureGap(IUIAutomation* automa
 
     if (frame)
     {
-        // Win11: walk the TaskbarFrame's children. The rightmost task button is the
-        // gap's left edge; the Widgets button (if it sits in the gap) is the right.
+        // Win11: leftKnown = right edge of the rightmost KNOWN task button (apps +
+        // Start/Search/TaskView). Widgets is in the gap iff it sits at/right of that
+        // (>= so apps abutting Widgets collapse to a zero gap → dock fallback, never
+        // an overlap); else the tray bounds the gap. Then extend leftBound over any
+        // child sitting between leftKnown and the right bound — that catches an
+        // overflow "show more" chevron (unknown class) by geometry, while left>=
+        // leftKnown keeps a stray full-width child from collapsing the gap.
         ComPtr<IUIAutomationCondition> trueCond;
         ComPtr<IUIAutomationElementArray> kids;
         if (SUCCEEDED(automation->CreateTrueCondition(&trueCond)) &&
@@ -234,27 +240,42 @@ TaskbarOverlayWindow::Gap TaskbarOverlayWindow::MeasureGap(IUIAutomation* automa
         {
             int n = 0;
             kids->get_Length(&n);
+            std::vector<RECT> others;   // unknown-class children (overflow chevron etc.)
+            LONG leftKnown   = rTray.left;
             LONG widgetsLeft = 0;
             bool haveWidgets = false;
             for (int i = 0; i < n; ++i)
             {
                 ComPtr<IUIAutomationElement> el;
                 if (FAILED(kids->GetElement(i, &el)) || !el) continue;
-                RECT r = {};
-                if (FAILED(el->get_CurrentBoundingRectangle(&r))) continue;
-
-                const std::wstring cls = GetClassName(el.Get());
                 const std::wstring aid = GetAutomationId(el.Get());
-                const bool isTaskButton = cls == L"Taskbar.TaskListButtonAutomationPeer" ||
-                                          aid == L"StartButton" || aid == L"SearchButton" ||
-                                          aid == L"TaskViewButton";
-                if (isTaskButton && r.right > leftBound) leftBound = r.right;
-                if (aid == L"WidgetsButton") { widgetsLeft = r.left; haveWidgets = true; }
+                RECT r = {};
+                const HRESULT hr = el->get_CurrentBoundingRectangle(&r);
+                if (aid == L"WidgetsButton")
+                {
+                    if (FAILED(hr)) return kInvalid;  // can't locate a critical bound → dock fallback
+                    widgetsLeft = r.left; haveWidgets = true;
+                    continue;
+                }
+                if (FAILED(hr)) continue;
+                const std::wstring cls = GetClassName(el.Get());
+                if (cls == L"Taskbar.TaskListButtonAutomationPeer" ||
+                    aid == L"StartButton" || aid == L"SearchButton" || aid == L"TaskViewButton")
+                {
+                    if (r.right > leftKnown) leftKnown = r.right;
+                }
+                else
+                {
+                    others.push_back(r);
+                }
             }
-            // Only treat Widgets as the right bound when it actually sits in the gap
-            // (right of the apps, left of the tray); default Win11 puts it far left.
-            if (haveWidgets && widgetsLeft > leftBound && widgetsLeft < rightBound)
+            if (haveWidgets && widgetsLeft >= leftKnown && widgetsLeft < rightBound)
                 rightBound = widgetsLeft;
+            leftBound = leftKnown;
+            if (leftKnown > rTray.left)
+                for (const RECT& r : others)
+                    if (r.left >= leftKnown && r.right <= rightBound && r.right > leftBound)
+                        leftBound = r.right;
         }
     }
     else
@@ -310,8 +331,13 @@ void TaskbarOverlayWindow::ApplyGap(const Gap& g)
         InvalidateRect(m_hwnd, nullptr, TRUE);
         UpdateWindow(m_hwnd);
     }
-    if (m_shown != was && m_dockHwnd)
-        PostMessageW(m_dockHwnd, m_stateMsg, m_shown ? 1 : 0, 0);  // dock hides its strip while we host
+    // Tell the dock on the first verdict too (not just flips), so it knows whether to
+    // show its fallback strip instead of waiting — and never double-shows at startup.
+    if ((m_shown != was || !m_statePosted) && m_dockHwnd)
+    {
+        m_statePosted = true;
+        PostMessageW(m_dockHwnd, m_stateMsg, m_shown ? 1 : 0, 0);
+    }
 }
 
 int TaskbarOverlayWindow::ButtonAt(POINT ptClient) const

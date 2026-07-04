@@ -92,6 +92,14 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-04 — 5b debt polish (5b.4). (A) MeasureGap gap-left by geometry (leftKnown + chevron extension)
+  → overflow chevron can't be overlapped; Widgets by aid (>=, rect-fail→kInvalid). (C) pill corner radius
+  (RoundRect = ellipse diameter). (D) killed startup/reload double-frame: dock defers strip until first
+  host verdict (m_gapResolved) + overlay posts on first measure (m_statePosted) + Create one-shot backstop
+  timer. (B) tried AppBarRemove-first, REVERTED — ABM_REMOVE is itself a blocking SendMessage so it can't
+  outrun a hung explorer (inherent, no app fix). 2 burst rounds (AppBar/threading/visual-geom): r1 MAY
+  PROCEED w/ warnings→applied; r2 fixed Widgets-rect-fail overlap + dead push → final MAY PROCEED, no
+  residual debt. Simplifier: pending. Build clean. Stage 5 fully done incl. debt.
 - 2026-07-04 — Stage 5 ACCEPTED on Win11: all 5 5b visual checks pass (pills in gap; open apps → gap
   shrinks/pills drop; close → grow back; gap fail → dock-strip fallback; empty-gap right-click → taskbar
   menu; config edit → live pill update). All 5 stages now accepted. Next: profiler or deployment workstream.

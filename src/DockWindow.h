@@ -55,6 +55,7 @@ private:
     HWINEVENTHOOK     m_winEventHookForeground = nullptr;
     HWINEVENTHOOK     m_winEventHookLocation   = nullptr;
     bool              m_gapActive              = false;
+    bool              m_gapResolved            = false;  // first overlay verdict seen? (avoids startup double-show)
     std::unique_ptr<TabReader>     m_tabReader;
     std::unique_ptr<FanPopup>      m_fanPopup;
     std::unique_ptr<ConfigWatcher> m_configWatcher;

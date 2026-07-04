@@ -145,8 +145,10 @@ namespace Renderer
         HPEN   pen = CreatePen(PS_SOLID, (std::max)(1, ScalePx(1, dpiI)), kButtonBorder);
         HGDIOBJ ob = SelectObject(hdc, br);
         HGDIOBJ op = SelectObject(hdc, pen);
-        const int r = (std::min)(ScalePx(3, dpiI), static_cast<int>(rc.bottom - rc.top) / 2);
-        RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, r, r);
+        // RoundRect's last two args are the corner ELLIPSE diameter (2×radius); clamp
+        // to the pill height so it reads as a rounded end, not a doubled radius.
+        const int d = (std::min)(ScalePx(6, dpiI), static_cast<int>(rc.bottom - rc.top));
+        RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, d, d);
         SelectObject(hdc, op);
         SelectObject(hdc, ob);
         DeleteObject(pen);

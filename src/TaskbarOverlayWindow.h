@@ -54,8 +54,9 @@ private:
     HWND            m_hwnd     = nullptr;
     bool            m_shown    = false;
     const Launcher* m_launcher = nullptr;
-    HWND            m_dockHwnd = nullptr;
-    UINT            m_stateMsg = 0;
+    HWND            m_dockHwnd   = nullptr;
+    UINT            m_stateMsg   = 0;
+    bool            m_statePosted = false;
 
     std::thread             m_thread;
     std::mutex              m_mutex;

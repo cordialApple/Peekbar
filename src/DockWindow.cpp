@@ -149,6 +149,7 @@ bool DockWindow::Create(HINSTANCE instance)
     if (m_taskbarOverlay->Create(instance, &m_launcher, hwnd, kGapStateMsg))
     {
         m_taskbarOverlay->RequestMeasure();
+        SetTimer(hwnd, kOverlayTimer, kOverlayMs, nullptr);  // backstop: guarantees a 2nd verdict if the 1st post is lost
         // Re-measure when the task list resizes. Scope to explorer's PID so we only
         // wake on taskbar layout changes, not every window move system-wide.
         DWORD explorerPid = 0;
@@ -158,6 +159,10 @@ bool DockWindow::Create(HINSTANCE instance)
             m_winEventHookLocation = SetWinEventHook(
                 EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE,
                 nullptr, WinEventProc, explorerPid, 0, WINEVENT_OUTOFCONTEXT);
+    }
+    else
+    {
+        m_gapResolved = true;  // no overlay → dock is the sole host from the start
     }
 
     // Watch the config dir for live edits. Create it first so the watch attaches even
@@ -182,11 +187,13 @@ HWND DockWindow::CardAt(POINT ptClient) const
     return nullptr;
 }
 
-// While the gap overlay hosts the buttons, the dock strip shows none (single host).
+// Single host: the dock strip shows the buttons only once the overlay has reported
+// its verdict AND isn't hosting them itself (before the first verdict, neither shows
+// — avoids a startup frame where both paint buttons).
 const std::vector<Button>& DockWindow::DockButtons() const
 {
     static const std::vector<Button> none;
-    return m_gapActive ? none : m_launcher.Buttons();
+    return (m_gapResolved && !m_gapActive) ? m_launcher.Buttons() : none;
 }
 
 int DockWindow::ButtonAt(POINT ptClient) const
@@ -524,8 +531,9 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         return 0;
 
     case kGapStateMsg:
-        // Overlay took over / gave up hosting the buttons → flip the dock fallback.
-        m_gapActive = (wparam != 0);
+        // Overlay reported whether it's hosting the buttons → flip the dock fallback.
+        m_gapActive   = (wparam != 0);
+        m_gapResolved = true;
         InvalidateRect(hwnd, nullptr, FALSE);
         return 0;
 
