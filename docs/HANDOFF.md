@@ -33,19 +33,21 @@ performance over ETW.
 | Stage 2 — browser detection | ✅ Complete — all 4 steps + §12 row 2 accepted on Win11 |
 | Stage 3 — single-window tabs | ✅ Complete — tabs render per-window on minimize, accepted on Win11 |
 | Stage 4 — multi-window stacks | 🟡 code complete (4.1–4.5 + 4.5a) — §12 row 4 acceptance pending on Windows |
-| Stage 5 — taskbar buttons | 🟡 Phase 5a COMPLETE; 5b.1 gap-measurement + debug outline code done (visual check pending); next 5b.2 overlay window + click-through |
+| Stage 5 — taskbar buttons | 🟡 Phase 5a COMPLETE; 5b.1 gap-measure ✅ ACCEPTED; 5b.2 buttons-in-gap code done (visual pending); next 5b.3 dynamic re-measure + dock fallback |
 | Profiler (parallel workstream) | ⬜ unlocked — see `docs/plans/profiler.md` |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
-**Next action: Phase 5b.2 — overlay window + click-through.** Host the 5a `Launcher` buttons in the
-measured taskbar gap (borderless topmost tool window; `WM_NCHITTEST`→`HTTRANSPARENT` outside button
-rects). 5b.1 (gap measurement + debug outline) is code-complete — **needs a Windows visual/runtime check
-first**: run the exe, confirm the green outline hugs the empty taskbar strip between the last task button
-and the tray, centered + left layouts, and moves as apps open/close. Geometry reference:
+**Next action: Phase 5b.3 — dynamic re-measure + dock fallback.** Swap the 500ms poll timer for an
+`EVENT_OBJECT_LOCATIONCHANGE` hook (debounced) on the task list; when the gap overlay is active, HIDE the
+5a dock-hosted button strip (currently BOTH show); when measurement fails or the gap is too small, fall
+back to the dock strip. 5b.1+5b.2 are code-complete — **need a Windows visual check first**: run the exe,
+confirm the automation pills (Gmail/GitHub) appear in the empty taskbar strip between the last app icon
+and the weather widget, that clicking a pill opens it, that empty-gap clicks (and right-click menu) still
+reach the taskbar, and that opening apps shrinks/drops pills. Geometry + UIA element reference:
 `docs/research/win11-taskbar-geometry.md`. `TaskbarOverlayWindow.{h,cpp}` isolates ALL taskbar heuristics
-(hard rule 6). 5b debt carried into 5b.3: fence the `ABM_GETSTATE` explorer round-trip (F-02),
-cache the explorer-owner check (F-04), swap the 500ms poll timer for the `EVENT_OBJECT_LOCATIONCHANGE`
-hook. Also still pending user check from 5a: dock grows on minimize; pill buttons top-right; config
+(hard rule 6). 5b debt carried into 5b.3: overflow-chevron class (live overflowed taskbar), fence the
+`ABM_GETSTATE`/worker-join vs hung explorer at shutdown, bounded one-`Gap` shutdown leak, RoundRect
+radius-vs-diameter (cosmetic). Also still pending user check from 5a: dock grows on minimize; config
 hot-reload ~1s (%LOCALAPPDATA%\browser_shell_os\config.txt).
 
 Deferred debt:
@@ -90,6 +92,14 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-04 — 5b.1 ACCEPTED on Win11 (green outline hugs [Postman,Widgets]); 5b.2 buttons-in-gap code done,
+  MAY PROCEED. Overlay now hosts the automation pills: dropped WS_EX_TRANSPARENT, WM_NCHITTEST→HTCLIENT on
+  pill / HTTRANSPARENT elsewhere (empty-gap + right-click menu still reach taskbar), WM_LBUTTONUP→Launcher::
+  Execute. Renderer: DrawButton promoted public + new GapButtonLayout (left-anchored, drops overflow =
+  auto-downsize). ButtonAt hit-tests same layout Paint draws. ApplyGap shows only when ≥1 pill fits. Config
+  reload→Refresh. Overlay holds const Launcher* (UI thread; worker never touches it). Burst (threading/DPI/
+  visual)→MAY PROCEED; applied T3 (m_taskbarOverlay declared after m_launcher → destructs first) + V2 (hide
+  when no pill fits). Simplifier: pending. Build clean. Visual pending. Both dock+gap show buttons till 5b.3.
 - 2026-07-04 — Phase 5b started; 5b.1 gap-measurement + debug outline code done, MAY PROCEED. First tried a
   pure-HWND path but USER SCREENSHOT showed the outline far too wide. Live-probed the taskbar: on Win11 the
   MSTaskSwWClass HWND rect is a legacy STUB (45..577) that doesn't match the XAML layout (app icons render

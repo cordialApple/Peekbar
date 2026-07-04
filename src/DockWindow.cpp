@@ -140,10 +140,10 @@ bool DockWindow::Create(HINSTANCE instance)
 
     m_launcher.Load();  // Stage 5a: automation-button config
 
-    // Stage 5b.1: debug outline over the taskbar's empty gap. Measure now, then
-    // re-measure on a low-frequency timer + on geometry-change events.
+    // Stage 5b: host the automation buttons in the taskbar's empty gap. Measure now,
+    // then re-measure on a low-frequency timer + on geometry-change events.
     m_taskbarOverlay = std::make_unique<TaskbarOverlayWindow>();
-    if (m_taskbarOverlay->Create(instance))
+    if (m_taskbarOverlay->Create(instance, &m_launcher))
     {
         m_taskbarOverlay->RequestMeasure();
         SetTimer(hwnd, kOverlayTimer, kOverlayMs, nullptr);
@@ -480,6 +480,7 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             KillTimer(hwnd, kConfigTimer);
             m_launcher.Load();
             InvalidateRect(hwnd, nullptr, FALSE);
+            if (m_taskbarOverlay) m_taskbarOverlay->Refresh();  // gap pills reflect new config
         }
         else if (wparam == kOverlayTimer)
         {

@@ -55,8 +55,10 @@ private:
     std::unique_ptr<TabReader>     m_tabReader;
     std::unique_ptr<FanPopup>      m_fanPopup;
     std::unique_ptr<ConfigWatcher> m_configWatcher;
-    std::unique_ptr<TaskbarOverlayWindow> m_taskbarOverlay;
     Launcher                       m_launcher;
+    // Declared after m_launcher: the overlay holds a Launcher* and its worker is
+    // joined in ~TaskbarOverlayWindow, so it must destruct BEFORE m_launcher.
+    std::unique_ptr<TaskbarOverlayWindow> m_taskbarOverlay;
     HWND                       m_hoverCard    = nullptr;
     bool                       m_mouseTracking = false;
 };

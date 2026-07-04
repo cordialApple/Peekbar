@@ -112,14 +112,27 @@ worker-join vs a hung explorer at shutdown; bounded one-`Gap` shutdown leak.
 Widgets/tray on Win10 and Win11, centered + left layouts; opening/closing apps moves
 it. **Awaiting user visual/runtime check on Windows** (build clean).
 
-### Step 5b.2 — Overlay window + click-through
-**Build:** borderless topmost tool window positioned in the measured gap;
-`WM_NCHITTEST` returns `HTTRANSPARENT` outside button rects. Buttons render
-via the SAME `Launcher`/button model as 5a (shared component, different
-host).
+### Step 5b.2 — Overlay window + click-through ✅ (code done 2026-07-04)
+**Built:** the gap overlay now HOSTS the automation buttons. Dropped
+`WS_EX_TRANSPARENT`; `WM_NCHITTEST` returns `HTCLIENT` over a pill, `HTTRANSPARENT`
+everywhere else, so empty-gap clicks (incl. the taskbar right-click menu) pass
+through. `WM_LBUTTONUP` → `Launcher::Execute` (fire-and-forget, its own worker).
+Buttons render via the SAME `Launcher` model as 5a: promoted `Renderer::DrawButton`
+to public + added `Renderer::GapButtonLayout` (left-anchored pill row, vertically
+centered, DROPS overflow so the overlay never crowds the taskbar — the "auto-downsize
+to ensure taskbar space" behavior). `ButtonAt` hit-tests the SAME layout Paint draws
+(clickable area == pill). `ApplyGap` shows only when ≥1 pill fits (a valid-but-narrow
+gap stays hidden — no do-nothing topmost window). Config hot-reload → `Refresh()`
+repaints the pills. Overlay takes a `const Launcher*` (owned by DockWindow, UI thread;
+the measure worker never touches it). Burst (threading/DPI/visual) → MAY PROCEED;
+applied T3 (member-decl order: overlay after launcher so it destructs first) + V2
+(hide when no pill fits). Debt: RoundRect corner radius reads as diameter (cosmetic,
+shared DrawButton); no taskbar menu when right-clicking a pill (pills are left-click).
 
-**Checkpoint:** buttons work in the taskbar gap; clicks outside buttons
-reach the taskbar normally (e.g. right-click taskbar menu still opens).
+**Checkpoint:** buttons work in the taskbar gap; clicks outside buttons reach the
+taskbar normally (right-click menu still opens). **Awaiting user visual/runtime check
+on Windows** (build clean; both dock strip + gap show buttons until 5b.3 adds the
+fallback that hides the dock strip when the gap overlay is active).
 
 ### Step 5b.3 — Dynamic re-measure + fallback
 **Build:** re-measure on task-list `EVENT_OBJECT_LOCATIONCHANGE`

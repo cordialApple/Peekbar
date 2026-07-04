@@ -1,6 +1,8 @@
 #include "TaskbarOverlayWindow.h"
 #include "PaintUtil.h"
+#include "Renderer.h"
 #include <shellapi.h>
+#include <windowsx.h>
 #include <UIAutomation.h>
 #include <wrl/client.h>
 #include <cwchar>
@@ -14,10 +16,9 @@ namespace
     constexpr wchar_t kClassName[] = L"BrowserShellOsTaskbarOverlay";
     constexpr UINT    kApplyGapMsg = WM_APP + 1;
 
-    // Debug outline: color-keyed transparent interior + a bright frame. LWA_COLORKEY
-    // makes kColorKey fully see-through so only the frame shows over the taskbar.
+    // LWA_COLORKEY makes kColorKey fully see-through, so the gap shows through the
+    // overlay everywhere except the pills the buttons paint.
     constexpr COLORREF kColorKey = RGB(1, 1, 1);
-    constexpr COLORREF kOutline  = RGB(0, 230, 90);
 
     constexpr int kMinGapDip = 40;   // narrower than this → not worth an overlay (→ hide)
 
@@ -62,8 +63,10 @@ TaskbarOverlayWindow::~TaskbarOverlayWindow()
     Destroy();
 }
 
-bool TaskbarOverlayWindow::Create(HINSTANCE instance)
+bool TaskbarOverlayWindow::Create(HINSTANCE instance, const Launcher* launcher)
 {
+    m_launcher = launcher;
+
     WNDCLASSEXW wc = {};
     wc.cbSize        = sizeof(wc);
     wc.lpfnWndProc   = StaticWndProc;
@@ -74,11 +77,12 @@ bool TaskbarOverlayWindow::Create(HINSTANCE instance)
     if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
         return false;
 
-    // WS_EX_TRANSPARENT + no hit-test work → clicks fall through to the taskbar, so
-    // even the debug outline never blocks normal taskbar behavior. LAYERED enables
-    // the color-key transparency. TOOLWINDOW/TOPMOST/NOACTIVATE match the dock.
+    // NOT WS_EX_TRANSPARENT: the overlay must catch clicks on its pills. WM_NCHITTEST
+    // returns HTTRANSPARENT off the pills so empty-gap clicks pass to the taskbar.
+    // LAYERED enables the color-key transparency. TOOLWINDOW/TOPMOST/NOACTIVATE match
+    // the dock; NOACTIVATE keeps clicks from stealing foreground.
     m_hwnd = CreateWindowExW(
-        WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_LAYERED | WS_EX_TRANSPARENT,
+        WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_LAYERED,
         kClassName,
         L"",
         WS_POPUP,
@@ -272,18 +276,46 @@ TaskbarOverlayWindow::Gap TaskbarOverlayWindow::MeasureGap(IUIAutomation* automa
 void TaskbarOverlayWindow::ApplyGap(const Gap& g)
 {
     if (!m_hwnd) return;
-    if (!g.valid)
+
+    // Size to the gap first (visibility unchanged), then show only if a pill actually
+    // fits — a valid-but-too-narrow gap must not leave a do-nothing topmost window.
+    bool fits = false;
+    if (g.valid)
+    {
+        SetWindowPos(m_hwnd, HWND_TOPMOST,
+                     g.rc.left, g.rc.top,
+                     g.rc.right - g.rc.left, g.rc.bottom - g.rc.top,
+                     SWP_NOACTIVATE);
+        RECT client;
+        GetClientRect(m_hwnd, &client);
+        fits = m_launcher && !Renderer::GapButtonLayout(
+                   client, GetDpiForWindow(m_hwnd), m_launcher->Buttons()).empty();
+    }
+
+    if (!fits)
     {
         if (m_shown) { ShowWindow(m_hwnd, SW_HIDE); m_shown = false; }
         return;
     }
-    SetWindowPos(m_hwnd, HWND_TOPMOST,
-                 g.rc.left, g.rc.top,
-                 g.rc.right - g.rc.left, g.rc.bottom - g.rc.top,
-                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
-    m_shown = true;
+    if (!m_shown) { ShowWindow(m_hwnd, SW_SHOWNOACTIVATE); m_shown = true; }
     InvalidateRect(m_hwnd, nullptr, TRUE);
     UpdateWindow(m_hwnd);
+}
+
+void TaskbarOverlayWindow::Refresh()
+{
+    if (m_hwnd && m_shown) InvalidateRect(m_hwnd, nullptr, TRUE);
+}
+
+int TaskbarOverlayWindow::ButtonAt(POINT ptClient) const
+{
+    if (!m_launcher) return -1;
+    RECT rc;
+    GetClientRect(m_hwnd, &rc);
+    for (const Renderer::ButtonHit& h :
+         Renderer::GapButtonLayout(rc, GetDpiForWindow(m_hwnd), m_launcher->Buttons()))
+        if (PtInRect(&h.rect, ptClient)) return h.index;
+    return -1;
 }
 
 // static
@@ -321,6 +353,21 @@ LRESULT CALLBACK TaskbarOverlayWindow::StaticWndProc(HWND hwnd, UINT msg, WPARAM
             EndPaint(hwnd, &ps);
             return 0;
         }
+        case WM_NCHITTEST:
+        {
+            // Only the pills are ours; everywhere else falls through to the taskbar.
+            POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
+            ScreenToClient(hwnd, &pt);
+            return self->ButtonAt(pt) >= 0 ? HTCLIENT : HTTRANSPARENT;
+        }
+        case WM_LBUTTONUP:
+        {
+            const POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
+            const int i = self->ButtonAt(pt);
+            if (i >= 0 && self->m_launcher)
+                self->m_launcher->Execute(self->m_launcher->Buttons()[i]);
+            return 0;
+        }
         case WM_MOUSEACTIVATE:
             return MA_NOACTIVATE;
         }
@@ -334,18 +381,14 @@ void TaskbarOverlayWindow::Paint(HDC hdc)
     GetClientRect(m_hwnd, &rc);
 
     HBRUSH key = CreateSolidBrush(kColorKey);
-    FillRect(hdc, &rc, key);          // transparent interior via LWA_COLORKEY
+    FillRect(hdc, &rc, key);          // gap shows through (transparent via LWA_COLORKEY)
     DeleteObject(key);
+
+    if (!m_launcher) return;
 
     const UINT rawDpi = GetDpiForWindow(m_hwnd);
     const int dpi = rawDpi ? static_cast<int>(rawDpi) : 96;
-    const int th  = ScalePx(2, dpi);
-
-    HBRUSH frame = CreateSolidBrush(kOutline);
-    for (int i = 0; i < th; ++i)
-    {
-        RECT r = { rc.left + i, rc.top + i, rc.right - i, rc.bottom - i };
-        FrameRect(hdc, &r, frame);
-    }
-    DeleteObject(frame);
+    const auto& buttons = m_launcher->Buttons();
+    for (const Renderer::ButtonHit& h : Renderer::GapButtonLayout(rc, rawDpi, buttons))
+        Renderer::DrawButton(hdc, h.rect, buttons[h.index], dpi);
 }
