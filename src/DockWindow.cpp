@@ -17,6 +17,8 @@ namespace
     constexpr UINT    kDebounceMs       = 200;
     constexpr UINT_PTR kHoverTimer      = 2;
     constexpr UINT    kHoverMs          = 250;
+    constexpr UINT_PTR kSnapshotTimer   = 3;
+    constexpr UINT    kSnapshotMs       = 150;
 
     // Single-instance: safe to keep a plain HWND here for the WinEventProc callback.
     // Written on the UI thread in Create/WM_DESTROY; read on the same thread in WinEventProc
@@ -146,6 +148,18 @@ void DockWindow::ClearHover()
     KillTimer(m_hwnd, kHoverTimer);
     m_hoverCard = nullptr;
     if (m_fanPopup) m_fanPopup->Hide();
+}
+
+// Coalesce snapshot requests: a burst (Win+M minimizing many windows, or a flood
+// of NAMECHANGE during page loads) collapses into one flush after 150ms of quiet,
+// so the UIA worker doesn't thrash. Foreground pre-warm stays immediate — it must
+// beat the minimized window's UIA tree-strip.
+void DockWindow::RequestSnapshotDebounced(HWND hwnd)
+{
+    if (std::find(m_pendingSnapshots.begin(), m_pendingSnapshots.end(), hwnd)
+            == m_pendingSnapshots.end())
+        m_pendingSnapshots.push_back(hwnd);
+    SetTimer(m_hwnd, kSnapshotTimer, kSnapshotMs, nullptr);
 }
 
 // Un-minimize and focus. ShowWindowAsync (not ShowWindow) so a hung target's
@@ -333,8 +347,8 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             {
                 const bool minimizing = (event == EVENT_SYSTEM_MINIMIZESTART);
                 m_store.SetMinimized(target, minimizing);
-                if (minimizing && m_tabReader)
-                    m_tabReader->RequestSnapshot(target);
+                if (minimizing)
+                    RequestSnapshotDebounced(target);
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
             return 0;
@@ -352,7 +366,7 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             if (m_store.Has(target))
             {
                 StoreWindow(m_store, target);
-                if (m_tabReader) m_tabReader->RequestSnapshot(target);
+                RequestSnapshotDebounced(target);
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
             return 0;
@@ -388,6 +402,14 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             }
             m_pendingValidation.clear();
             InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        else if (wparam == kSnapshotTimer)
+        {
+            KillTimer(hwnd, kSnapshotTimer);
+            if (m_tabReader)
+                for (HWND h : m_pendingSnapshots)
+                    m_tabReader->RequestSnapshot(h);
+            m_pendingSnapshots.clear();
         }
         return 0;
 
@@ -471,6 +493,7 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         m_fanPopup.reset();
         KillTimer(hwnd, kDebounceTimer);
         KillTimer(hwnd, kHoverTimer);
+        KillTimer(hwnd, kSnapshotTimer);
         if (m_winEventHookForeground) { UnhookWinEvent(m_winEventHookForeground); m_winEventHookForeground = nullptr; }
         if (m_winEventHookNameChange) { UnhookWinEvent(m_winEventHookNameChange); m_winEventHookNameChange = nullptr; }
         if (m_winEventHookMinimize)   { UnhookWinEvent(m_winEventHookMinimize);   m_winEventHookMinimize   = nullptr; }

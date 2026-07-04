@@ -34,6 +34,7 @@ private:
     HWND CardAt(POINT ptClient) const;
     void RestoreWindow(HWND target);
     void ClearHover();
+    void RequestSnapshotDebounced(HWND hwnd);
 
     HWND              m_hwnd             = nullptr;
     APPBARDATA        m_abd              = {};
@@ -41,6 +42,7 @@ private:
     int               m_dockHeight       = 0;
     Store             m_store;
     std::vector<HWND> m_pendingValidation;
+    std::vector<HWND> m_pendingSnapshots;
     HWINEVENTHOOK     m_winEventHook           = nullptr;
     HWINEVENTHOOK     m_winEventHookMinimize   = nullptr;
     HWINEVENTHOOK     m_winEventHookNameChange = nullptr;

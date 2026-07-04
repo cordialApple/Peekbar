@@ -70,13 +70,29 @@ now.)
 card #2 → that window restores and focuses; its card disappears; the other
 two remain side by side.
 
-## Step 4.5 — Snapshot debounce polish
+## Step 4.5 — Snapshot debounce polish ✅ (done 2026-07-04)
 
-**Build:** debounce UIA snapshots when many windows minimize at once (Win+M)
-so the worker queue doesn't thrash; dock stays responsive.
+**Built:** `DockWindow::RequestSnapshotDebounced` coalesces snapshot requests —
+MINIMIZESTART (Win+M burst) and NAMECHANGE (page-load throbber flood) add the
+HWND to `m_pendingSnapshots` (dedup) and restart a 150ms `kSnapshotTimer`; the
+timer arm flushes the batch to `TabReader::RequestSnapshot`. EVENT_SYSTEM_
+FOREGROUND pre-warm stays immediate — it must beat the minimized window's UIA
+tree-strip. Store/paint updates stay immediate; only the snapshot is deferred.
+Timer killed in WM_DESTROY. Inspector burst (threading/AppBar/DPI clean) →
+adjudicator → MAY PROCEED.
 
 **Checkpoint:** Win+M with 3 windows → all cards populate within ~1s, dock
-responsive, CPU settles to ~0%.
+responsive, CPU settles to ~0%. (Runtime check pending with user on Windows.)
+
+### Step 4.5a — Drop the per-card title header (user request) ✅ (done 2026-07-04)
+
+**Built:** removed the card header (window title + "N tabs" badge) — the title
+just echoed the active tab, so it carried no info. Tab chips now use the full
+card height (`rowRc` = card inset by pad on all sides) instead of the bottom
+half. Frees the top strip so a second window can later stack there (vertical
+window-stacking itself is not built). Supersedes Step 4.2's header spec.
+Note (user visual call): chips are now ~2× taller with the same 9pt font — bump
+the tab font if the slabs read as too empty.
 
 ## Definition of done
 

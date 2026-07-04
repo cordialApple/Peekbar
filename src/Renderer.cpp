@@ -14,51 +14,15 @@ namespace
         DeleteObject(cardBrush);
 
         const int pad = ScalePx(6, dpiI);
-        const int cardH = cardRc.bottom - cardRc.top;
 
-        HFONT titleFont = MakeFont(10, FW_SEMIBOLD, dpiI);
-        HFONT tabFont   = MakeFont(9,  FW_NORMAL,   dpiI);
-
-        HFONT old = static_cast<HFONT>(SelectObject(hdc, titleFont));
+        HFONT tabFont = MakeFont(9, FW_NORMAL, dpiI);
+        HFONT old = static_cast<HFONT>(SelectObject(hdc, tabFont));
         SetBkMode(hdc, TRANSPARENT);
 
-        const int hdrTop  = cardRc.top + pad;
-        const int hdrBot  = cardRc.top + cardH / 2;
-        const int hdrLeft = cardRc.left + pad;
-        const int hdrRight = cardRc.right - pad;
-
-        // "N tabs" badge, right-aligned; title centered in a symmetric remainder.
-        // Only show the badge if it fits symmetrically beside a minimum title width,
-        // otherwise the title rect would invert and the title would vanish.
-        wchar_t badge[24];
-        swprintf_s(badge, L"%d tab%s",
-                   static_cast<int>(win.tabs.size()),
-                   win.tabs.size() == 1 ? L"" : L"s");
-        SIZE badgeSz = {};
-        GetTextExtentPoint32W(hdc, badge, static_cast<int>(wcslen(badge)), &badgeSz);
-        const int badgeCol = badgeSz.cx + ScalePx(4, dpiI);  // pad so badge never touches title
-        const int minTitle = ScalePx(30, dpiI);
-
-        RECT titleRc = { hdrLeft, hdrTop, hdrRight, hdrBot };
-        if (2 * badgeCol + minTitle <= hdrRight - hdrLeft)
-        {
-            RECT badgeRc = { hdrRight - badgeSz.cx, hdrTop, hdrRight, hdrBot };
-            SetTextColor(hdc, kTextSecond);
-            DrawTextW(hdc, badge, -1, &badgeRc, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
-            titleRc.left  = hdrLeft + badgeCol;
-            titleRc.right = hdrRight - badgeCol;
-        }
-        if (titleRc.right > titleRc.left)
-        {
-            SetTextColor(hdc, kTextPrimary);
-            DrawTextW(hdc, win.title.c_str(), -1, &titleRc,
-                      DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-        }
-
-        SelectObject(hdc, tabFont);
-
-        // Tab row: one truncated chip per tab, like the browser tab strip.
-        const RECT rowRc = { cardRc.left + pad, cardRc.top + cardH / 2 + ScalePx(2, dpiI),
+        // No title/count header: the window title just echoes the active tab, so it
+        // carried no info. The whole card height goes to legible tab chips (active
+        // chip first + highlighted); the freed strip space can stack another window.
+        const RECT rowRc = { cardRc.left + pad, cardRc.top + pad,
                              cardRc.right - pad, cardRc.bottom - pad };
         const int rowW = rowRc.right - rowRc.left;
         const int n    = static_cast<int>(win.tabs.size());
@@ -132,7 +96,6 @@ namespace
         }
 
         SelectObject(hdc, old);
-        DeleteObject(titleFont);
         DeleteObject(tabFont);
     }
 }

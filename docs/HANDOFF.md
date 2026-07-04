@@ -32,15 +32,16 @@ performance over ETW.
 | Stage 1 — AppBar dock | ✅ Complete — all 7 steps + acceptance row passed on Win11 |
 | Stage 2 — browser detection | ✅ Complete — all 4 steps + §12 row 2 accepted on Win11 |
 | Stage 3 — single-window tabs | ✅ Complete — tabs render per-window on minimize, accepted on Win11 |
-| Stage 4 — multi-window stacks | ⬜ unlocked — next |
+| Stage 4 — multi-window stacks | 🟡 code complete (4.1–4.5 + 4.5a) — §12 row 4 acceptance pending on Windows |
 | Stage 5 — taskbar buttons | ⬜ blocked on Stage 4 |
 | Profiler (parallel workstream) | ⬜ unlocked — see `docs/plans/profiler.md` |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
-**Next action: Stage 4 step 4.5 — snapshot debounce polish (Win+M).** See `docs/plans/stage-4.md` (variant D).
-4.3 hover-fan + 4.4 click-to-restore built + MAY PROCEED; awaiting user dock-appearance/behavior check
-(hover a card → headerless fan opens upward; click a card → that window restores+focuses, its card
-drops, others stay). Also still pending: 4.2a active-chip highlight contrast (F-03 user call).
+**Next action: Stage 4 acceptance (§12 row 4, D reinterpretation) on Windows — all steps built.**
+4.5 debounce + 4.5a header-removal built + MAY PROCEED; awaiting user runtime/visual check:
+Win+M 3 windows → cards populate ~1s, CPU→0; cards now headerless (no title/"N tabs" — full-height
+chips). Pending user visual calls: 4.5a chip font/height (tall slabs w/ 9pt — bump?), 4.2a active-chip
+contrast (F-03). See `docs/plans/stage-4.md` (variant D).
 
 Deferred debt:
 - [renderer-tiny-card] Very narrow cards (rowW < ~48px, i.e. many minimized windows) drop the
@@ -84,6 +85,13 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-04 — Step 4.5 (snapshot debounce) + 4.5a (drop card header) done in one run. Debounce:
+  RequestSnapshotDebounced coalesces MINIMIZESTART/NAMECHANGE bursts into one 150ms-quiet flush to
+  TabReader; FOREGROUND pre-warm stays immediate (must beat UIA strip); store/paint stay immediate;
+  KillTimer(kSnapshotTimer) in WM_DESTROY. 4.5a: removed per-card title + "N tabs" header (echoed
+  active tab → no info); chips now fill full card height. Inspector burst (threading/AppBar/DPI clean;
+  visual F1 tall-slab font = user taste call) → adjudicator → MAY PROCEED. Simplifier: no churn. Build
+  clean. Runtime/visual check pending on Windows. Stage 4 code complete; §12 row 4 acceptance next.
 - 2026-07-03 — Step 4.4 done: click-to-restore. WM_LBUTTONUP → CardAt hit-test (shared Renderer::
   CardLayout, client coords) → RestoreWindow. Card removal driven solely by EVENT_SYSTEM_MINIMIZEEND
   (Renderer filters minimized-only), no optimistic store write. Inspector burst (threading, AppBar,
