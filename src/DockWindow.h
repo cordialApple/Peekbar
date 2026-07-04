@@ -30,6 +30,7 @@ private:
 
     void AppBarRemove(HWND hwnd);
     void AppBarSetPos(HWND hwnd);
+    int  DockHeightPx(UINT dpi) const;
     void ShowFanFor(HWND card);
     HWND CardAt(POINT ptClient) const;
     void RestoreWindow(HWND target);

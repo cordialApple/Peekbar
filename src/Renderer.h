@@ -9,7 +9,7 @@ namespace Renderer
 
     void Paint(HDC hdc, const RECT& rc, UINT dpi, const Store& store);
 
-    // Card rects (dock client coords) for the minimized windows, left→right.
+    // Card rects (dock client coords) for the minimized windows, stacked top→bottom.
     // Shared with hover hit-testing so the layout lives in exactly one place.
     std::vector<CardHit> CardLayout(const RECT& rc, UINT dpi, const Store& store);
 }

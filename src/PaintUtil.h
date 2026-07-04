@@ -3,13 +3,21 @@
 
 namespace Paint
 {
-    constexpr COLORREF kBgColor      = RGB(28,  28,  30);
+    constexpr COLORREF kBgColor      = RGB(0x00, 0xA2, 0xED);
     constexpr COLORREF kCardBg       = RGB(44,  44,  48);
     constexpr COLORREF kChipBg       = RGB(60,  60,  66);
-    constexpr COLORREF kChipActiveBg = RGB(38,  79,  120);
+    constexpr COLORREF kChipActiveBg = RGB(0xF8, 0x7E, 0x73);
     constexpr COLORREF kTextPrimary  = RGB(220, 220, 220);
-    constexpr COLORREF kTextActive   = RGB(240, 244, 250);
+    constexpr COLORREF kTextActive   = RGB(38,  20,  16);  // dark warm — legible on coral active chip
     constexpr COLORREF kTextSecond   = RGB(170, 170, 176);
+    constexpr COLORREF kTextOnBg     = RGB(20,  24,  32);  // dark — legible on kBgColor blue
+
+    // Vertical window stack: one legible band per minimized window; the dock's
+    // reserved height grows with the window count up to kMaxBands (extras beyond
+    // that are not laid out — deferred, matches the many-window overflow debt).
+    constexpr int kBandHeightDip = 34;
+    constexpr int kBandPadDip    = 4;   // must match CardLayout's pad
+    constexpr int kMaxBands      = 4;
 
     inline int ScalePx(int px, int dpi) { return MulDiv(px, dpi, 96); }
 

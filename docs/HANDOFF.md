@@ -37,11 +37,12 @@ performance over ETW.
 | Profiler (parallel workstream) | ⬜ unlocked — see `docs/plans/profiler.md` |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
-**Next action: Stage 4 acceptance (§12 row 4, D reinterpretation) on Windows — all steps built.**
-4.5 debounce + 4.5a header-removal built + MAY PROCEED; awaiting user runtime/visual check:
-Win+M 3 windows → cards populate ~1s, CPU→0; cards now headerless (no title/"N tabs" — full-height
-chips). Pending user visual calls: 4.5a chip font/height (tall slabs w/ 9pt — bump?), 4.2a active-chip
-contrast (F-03). See `docs/plans/stage-4.md` (variant D).
+**Next action: Stage 5a.1 — Launcher config load** (non-visual). See `docs/plans/stage-5.md`.
+Stage 4 code complete incl. 4.5b vertical-stack refinement (dynamic dock height: one ~34-DIP band
+per minimized window, reserved height grows/shrinks with count, capped kMaxBands=4). Colors now
+bg #00A2ED, active chip #f87e73. All MAY PROCEED. Pending user runtime/visual check: dock grows as
+windows minimize, colors render, empty-state legible. User rule: only gate Stage-5 changes that need
+a visual look; proceed autonomously otherwise.
 
 Deferred debt:
 - [renderer-tiny-card] Very narrow cards (rowW < ~48px, i.e. many minimized windows) drop the
@@ -85,6 +86,16 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-04 — Stage 4 refinement (4.5b): real vertical window stacking. CardLayout stacks full-width
+  bands top→bottom (was side-by-side); dock height now DYNAMIC (DockHeightPx: one kBandHeightDip=34
+  band per minimized window + pad, clamped 1..kMaxBands=4), AppBarSetPos re-negotiated on minimize
+  events + validation timer. Colors: kBgColor #00A2ED, kChipActiveBg #f87e73, kTextActive dark,
+  new kTextOnBg for empty-state. Two inspector bursts: first flagged 4 blockers (band inversion N≥4,
+  empty-state text invisible on blue, WM_DPICHANGED no-invalidate stale paint, AppBarSetPos-after-
+  ABM_REMOVE on ENDSESSION drain) + 2 suspicious (chip-text inversion, WM_DISPLAYCHANGE invalidate).
+  All fixed (dynamic height, kTextOnBg, InvalidateRect ×2, m_appBarRegistered guard, txt-rect guard);
+  re-burst (AppBar/DPI/visual) clean → adjudicator MAY PROCEED. Simplifier: comment fixes only. Build
+  clean. Runtime/visual check pending on Windows. Next: Stage 5a.1.
 - 2026-07-04 — Step 4.5 (snapshot debounce) + 4.5a (drop card header) done in one run. Debounce:
   RequestSnapshotDebounced coalesces MINIMIZESTART/NAMECHANGE bursts into one 150ms-quiet flush to
   TabReader; FOREGROUND pre-warm stays immediate (must beat UIA strip); store/paint stay immediate;

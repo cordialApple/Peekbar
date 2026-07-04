@@ -1,5 +1,6 @@
 ﻿#include "Renderer.h"
 #include "PaintUtil.h"
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -77,9 +78,12 @@ namespace
 
                 RECT txt = { chip.left + chipPad, chip.top,
                              chip.right - chipPad, chip.bottom };
-                SetTextColor(hdc, tab.active ? kTextActive : kTextPrimary);
-                DrawTextW(hdc, tab.title.c_str(), -1, &txt,
-                          DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+                if (txt.right > txt.left)
+                {
+                    SetTextColor(hdc, tab.active ? kTextActive : kTextPrimary);
+                    DrawTextW(hdc, tab.title.c_str(), -1, &txt,
+                              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+                }
                 x += chipW + gap;
             }
 
@@ -112,19 +116,24 @@ namespace Renderer
             if (w.minimized) mins.push_back(hwnd);
 
         std::vector<CardHit> cards;
-        const int n = static_cast<int>(mins.size());
-        if (n == 0) return cards;
+        const int total = static_cast<int>(mins.size());
+        if (total == 0) return cards;
 
-        const int pad   = ScalePx(4, dpiI);
-        const int rcW   = rc.right - rc.left;
-        const int cardW = (rcW - pad * (n + 1)) / n;
-        int x           = rc.left + pad;
+        // Stack windows vertically: each is a full-width band, one layer of chips.
+        // More windows add rows, not taller chips. The dock height is sized to fit
+        // `n` bands (DockWindow::DockHeightPx), so cardH lands on ~kBandHeightDip.
+        const int n     = (std::min)(total, Paint::kMaxBands);
+        const int pad   = ScalePx(Paint::kBandPadDip, dpiI);
+        const int rcH   = rc.bottom - rc.top;
+        const int cardH = (rcH - pad * (n + 1)) / n;
+        if (cardH < 1) return cards;
 
+        int y = rc.top + pad;
         cards.reserve(n);
-        for (HWND h : mins)
+        for (int i = 0; i < n; ++i)
         {
-            cards.push_back({ { x, rc.top + pad, x + cardW, rc.bottom - pad }, h });
-            x += cardW + pad;
+            cards.push_back({ { rc.left + pad, y, rc.right - pad, y + cardH }, mins[i] });
+            y += cardH + pad;
         }
         return cards;
     }
@@ -143,7 +152,7 @@ namespace Renderer
             HFONT font    = MakeFont(12, FW_NORMAL, dpiI);
             HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, font));
             SetBkMode(hdc, TRANSPARENT);
-            SetTextColor(hdc, kTextSecond);
+            SetTextColor(hdc, kTextOnBg);
             RECT textRc = rc;
             DrawTextW(hdc, L"no minimized browsers", -1, &textRc,
                       DT_CENTER | DT_VCENTER | DT_SINGLELINE);

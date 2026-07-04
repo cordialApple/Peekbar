@@ -1,5 +1,6 @@
 #include "DockWindow.h"
 #include "Renderer.h"
+#include "PaintUtil.h"
 #include "WindowMonitor.h"
 #include <windowsx.h>
 #include <algorithm>
@@ -12,7 +13,6 @@ namespace
     constexpr UINT    kCallbackMsg      = WM_APP + 1;
     constexpr UINT    kWindowEventMsg   = WM_APP + 2;
     constexpr UINT    kTabSnapshotMsg   = WM_APP + 3;
-    constexpr int     kDockHeightDip    = 64;
     constexpr UINT_PTR kDebounceTimer   = 1;
     constexpr UINT    kDebounceMs       = 200;
     constexpr UINT_PTR kHoverTimer      = 2;
@@ -203,8 +203,26 @@ void DockWindow::ShowFanFor(HWND card)
     }
 }
 
+// Reserved height grows with the minimized-window count: one kBandHeightDip band
+// each (plus inter-band pad), clamped to [1, kMaxBands]. One band when idle so the
+// empty-state message still has a strip.
+int DockWindow::DockHeightPx(UINT dpi) const
+{
+    int n = 0;
+    for (const auto& [h, w] : m_store.All())
+        if (w.minimized) ++n;
+    n = std::clamp(n, 1, Paint::kMaxBands);
+    const int band = MulDiv(Paint::kBandHeightDip, dpi, 96);
+    const int pad  = MulDiv(Paint::kBandPadDip, dpi, 96);
+    return n * band + (n + 1) * pad;
+}
+
 void DockWindow::AppBarSetPos(HWND hwnd)
 {
+    // A minimize event queued before WM_ENDSESSION can dispatch after AppBarRemove
+    // during the session-end drain; don't QUERYPOS/SETPOS an unregistered AppBar.
+    if (!m_appBarRegistered) return;
+
     // Primary monitor physical rect (rcMonitor, NOT rcWork — shell arbitrates via QUERYPOS).
     HMONITOR hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY);
     MONITORINFO mi = {};
@@ -215,7 +233,7 @@ void DockWindow::AppBarSetPos(HWND hwnd)
     // Guard against 0 (before first WM_NCCREATE, or pre-Win10) → treat as 96.
     const UINT rawDpi = GetDpiForWindow(hwnd);
     const int dpi = rawDpi ? static_cast<int>(rawDpi) : 96;
-    m_dockHeight = MulDiv(kDockHeightDip, dpi, 96);
+    m_dockHeight = DockHeightPx(static_cast<UINT>(dpi));
 
     // Propose: full monitor width, bottom-anchored.
     m_abd.hWnd  = hwnd;
@@ -319,10 +337,12 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
     case WM_DISPLAYCHANGE:
         AppBarSetPos(hwnd);
+        InvalidateRect(hwnd, nullptr, TRUE);  // width may change → repaint whole client
         return 0;
 
     case WM_DPICHANGED:
         AppBarSetPos(hwnd);
+        InvalidateRect(hwnd, nullptr, TRUE);  // repaint all at new DPI, not just exposed strip
         return 0;
 
     case WM_QUERYENDSESSION:
@@ -349,6 +369,7 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
                 m_store.SetMinimized(target, minimizing);
                 if (minimizing)
                     RequestSnapshotDebounced(target);
+                AppBarSetPos(hwnd);  // band count changed → re-negotiate reserved height
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
             return 0;
@@ -401,6 +422,7 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
                 }
             }
             m_pendingValidation.clear();
+            AppBarSetPos(hwnd);  // a removed window may drop a band → re-negotiate
             InvalidateRect(hwnd, nullptr, FALSE);
         }
         else if (wparam == kSnapshotTimer)
