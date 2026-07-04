@@ -37,10 +37,10 @@ performance over ETW.
 | Profiler (parallel workstream) | ⬜ unlocked — see `docs/plans/profiler.md` |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
-**Next action: Stage 4 step 4.4 — click-to-restore + hit testing.** See `docs/plans/stage-4.md` (variant D).
-4.3 hover-fan built + MAY PROCEED; awaiting user dock-appearance check (hover a card → fan opens
-upward, lists tabs, no focus steal, closes on leave; strip height constant). Also still pending:
-4.2a active-chip highlight contrast (F-03 user call).
+**Next action: Stage 4 step 4.5 — snapshot debounce polish (Win+M).** See `docs/plans/stage-4.md` (variant D).
+4.3 hover-fan + 4.4 click-to-restore built + MAY PROCEED; awaiting user dock-appearance/behavior check
+(hover a card → headerless fan opens upward; click a card → that window restores+focuses, its card
+drops, others stay). Also still pending: 4.2a active-chip highlight contrast (F-03 user call).
 
 Deferred debt:
 - [renderer-tiny-card] Very narrow cards (rowW < ~48px, i.e. many minimized windows) drop the
@@ -84,6 +84,16 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-03 — Step 4.4 done: click-to-restore. WM_LBUTTONUP → CardAt hit-test (shared Renderer::
+  CardLayout, client coords) → RestoreWindow. Card removal driven solely by EVENT_SYSTEM_MINIMIZEEND
+  (Renderer filters minimized-only), no optimistic store write. Inspector burst (threading, AppBar,
+  click-restore correctness) → adjudicator → BLOCKED (rule-5 pump-block on hung target). Fixed:
+  ShowWindow→ShowWindowAsync (M1), dropped undocumented SwitchToThisWindow for FlashWindowEx fallback
+  (M2, also clears rule-6), event-driven removal (M3, no orphaned card). Re-burst (threading+AppBar) →
+  re-adjudicate → MAY PROCEED (SetForegroundWindow ruled non-blocking). Simplifier extracted ClearHover
+  helper. Build clean. Runtime/visual check pending with user. Next: 4.5 snapshot debounce.
+- 2026-07-03 — fanpopup: dropped window-title header (duplicated active-tab row); fan opens straight
+  into the tab list. User-requested tweak. Build clean.
 - 2026-07-03 — Step 4.3 done: per-window hover-fan. FanPopup.{h,cpp} (transient WS_POPUP, NOACTIVATE,
   grows upward from strip top, monitor-clamped, DPI-scaled rows + "+N more" overflow). PaintUtil.h
   extracts shared palette/ScalePx/MakeFont. Renderer exposes CardLayout (single source of card rects,

@@ -132,6 +132,37 @@ bool DockWindow::Create(HINSTANCE instance)
     return true;
 }
 
+HWND DockWindow::CardAt(POINT ptClient) const
+{
+    RECT rc;
+    GetClientRect(m_hwnd, &rc);
+    for (const Renderer::CardHit& c : Renderer::CardLayout(rc, GetDpiForWindow(m_hwnd), m_store))
+        if (PtInRect(&c.rect, ptClient)) return c.hwnd;
+    return nullptr;
+}
+
+void DockWindow::ClearHover()
+{
+    KillTimer(m_hwnd, kHoverTimer);
+    m_hoverCard = nullptr;
+    if (m_fanPopup) m_fanPopup->Hide();
+}
+
+// Un-minimize and focus. ShowWindowAsync (not ShowWindow) so a hung target's
+// queue can't block our UI pump. SetForegroundWindow is restricted when we
+// aren't the foreground process; on failure flash the taskbar button instead
+// (documented + non-blocking, unlike SwitchToThisWindow/AttachThreadInput).
+void DockWindow::RestoreWindow(HWND target)
+{
+    if (!target) return;
+    ShowWindowAsync(target, SW_RESTORE);
+    if (!SetForegroundWindow(target))
+    {
+        FLASHWINFO fi = { sizeof(fi), target, FLASHW_TRAY, 3, 0 };
+        FlashWindowEx(&fi);
+    }
+}
+
 // Map a hovered card (client coords) to screen anchor and open the fan above it.
 void DockWindow::ShowFanFor(HWND card)
 {
@@ -397,13 +428,7 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             m_mouseTracking = true;
         }
 
-        const POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
-        RECT rc;
-        GetClientRect(hwnd, &rc);
-        HWND card = nullptr;
-        for (const Renderer::CardHit& c : Renderer::CardLayout(rc, GetDpiForWindow(hwnd), m_store))
-            if (PtInRect(&c.rect, pt)) { card = c.hwnd; break; }
-
+        const HWND card = CardAt({ GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) });
         if (card != m_hoverCard)
         {
             m_hoverCard = card;
@@ -413,8 +438,7 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             }
             else
             {
-                KillTimer(hwnd, kHoverTimer);
-                if (m_fanPopup) m_fanPopup->Hide();
+                ClearHover();
             }
         }
         return 0;
@@ -422,10 +446,21 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
     case WM_MOUSELEAVE:
         m_mouseTracking = false;
-        m_hoverCard = nullptr;
-        KillTimer(hwnd, kHoverTimer);
-        if (m_fanPopup) m_fanPopup->Hide();
+        ClearHover();
         return 0;
+
+    case WM_LBUTTONUP:
+    {
+        const HWND target = CardAt({ GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) });
+        if (target)
+        {
+            ClearHover();
+            // Card removal is driven by the EVENT_SYSTEM_MINIMIZEEND handler, the
+            // single source of truth — so a restore that fails won't orphan a card.
+            RestoreWindow(target);
+        }
+        return 0;
+    }
 
     case WM_RBUTTONUP:
         DestroyWindow(hwnd);

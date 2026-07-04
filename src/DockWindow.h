@@ -31,6 +31,9 @@ private:
     void AppBarRemove(HWND hwnd);
     void AppBarSetPos(HWND hwnd);
     void ShowFanFor(HWND card);
+    HWND CardAt(POINT ptClient) const;
+    void RestoreWindow(HWND target);
+    void ClearHover();
 
     HWND              m_hwnd             = nullptr;
     APPBARDATA        m_abd              = {};
