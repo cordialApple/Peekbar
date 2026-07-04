@@ -20,7 +20,7 @@ public:
 
     // Anchor: bottom edge sits at stripTopScreen, left aligned to cardLeftScreen,
     // clamped to the card's monitor. Grows upward.
-    void Show(const std::wstring& title, const std::vector<Tab>& tabs,
+    void Show(const std::vector<Tab>& tabs,
               int cardLeftScreen, int cardRightScreen, int stripTopScreen, UINT dpi);
     void Hide();
 
@@ -34,7 +34,6 @@ private:
     HWND              m_hwnd    = nullptr;
     bool              m_visible = false;
     UINT              m_dpi     = 96;
-    std::wstring      m_title;
     std::vector<Tab>  m_tabs;
     int               m_hiddenCount = 0;
 };

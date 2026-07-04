@@ -153,7 +153,7 @@ void DockWindow::ShowFanFor(HWND card)
         POINT pr = { c.rect.right, 0 };
         ClientToScreen(m_hwnd, &pl);
         ClientToScreen(m_hwnd, &pr);
-        m_fanPopup->Show(it->second.title, it->second.tabs, pl.x, pr.x, pl.y, dpi);
+        m_fanPopup->Show(it->second.tabs, pl.x, pr.x, pl.y, dpi);
         return;
     }
 }

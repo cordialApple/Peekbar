@@ -47,7 +47,7 @@ void FanPopup::Destroy()
     m_visible = false;
 }
 
-void FanPopup::Show(const std::wstring& title, const std::vector<Tab>& tabs,
+void FanPopup::Show(const std::vector<Tab>& tabs,
                     int cardLeftScreen, int cardRightScreen, int stripTopScreen, UINT dpi)
 {
     if (!m_hwnd) return;
@@ -55,10 +55,8 @@ void FanPopup::Show(const std::wstring& title, const std::vector<Tab>& tabs,
 
     const int dpiI = dpi ? static_cast<int>(dpi) : 96;
     m_dpi   = static_cast<UINT>(dpiI);
-    m_title = title;
 
     const int pad     = ScalePx(6, dpiI);
-    const int headerH = ScalePx(24, dpiI);
     const int rowH    = ScalePx(24, dpiI);
 
     // Width tracks the hovered card but stays legible; clamp to the card's monitor.
@@ -79,7 +77,7 @@ void FanPopup::Show(const std::wstring& title, const std::vector<Tab>& tabs,
 
     // Grow upward from the strip; cap rows to what fits above the strip.
     const int avail   = stripTopScreen - mi.rcMonitor.top;
-    int maxRows = (avail - headerH - pad * 2) / rowH;
+    int maxRows = (avail - pad * 2) / rowH;
     if (maxRows < 1) maxRows = 1;
 
     const int total = static_cast<int>(tabs.size());
@@ -95,7 +93,7 @@ void FanPopup::Show(const std::wstring& title, const std::vector<Tab>& tabs,
     m_tabs.assign(tabs.begin(), tabs.begin() + shown);
 
     const int rows   = shown + (m_hiddenCount > 0 ? 1 : 0);
-    int height = headerH + rows * rowH + pad * 2;
+    int height = rows * rowH + pad * 2;
     if (height > avail) height = avail;   // never overflow above the monitor top
     const int top = stripTopScreen - height;
 
@@ -162,23 +160,15 @@ void FanPopup::Paint(HDC hdc)
     DeleteObject(bg);
 
     const int pad     = ScalePx(6, dpiI);
-    const int headerH = ScalePx(24, dpiI);
     const int rowH    = ScalePx(24, dpiI);
     const int chipPad = ScalePx(6, dpiI);
 
     SetBkMode(hdc, TRANSPARENT);
 
-    HFONT hdrFont = MakeFont(10, FW_SEMIBOLD, dpiI);
-    HFONT rowFont = MakeFont(9,  FW_NORMAL,   dpiI);
-    HFONT old     = static_cast<HFONT>(SelectObject(hdc, hdrFont));
+    HFONT rowFont = MakeFont(9, FW_NORMAL, dpiI);
+    HFONT old     = static_cast<HFONT>(SelectObject(hdc, rowFont));
 
-    RECT hdrRc = { rc.left + pad, rc.top + pad, rc.right - pad, rc.top + pad + headerH };
-    SetTextColor(hdc, kTextPrimary);
-    DrawTextW(hdc, m_title.c_str(), -1, &hdrRc,
-              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-
-    SelectObject(hdc, rowFont);
-    int y = rc.top + pad + headerH;
+    int y = rc.top + pad;
     for (const Tab& tab : m_tabs)
     {
         RECT row = { rc.left + pad, y, rc.right - pad, y + rowH };
@@ -205,6 +195,5 @@ void FanPopup::Paint(HDC hdc)
     }
 
     SelectObject(hdc, old);
-    DeleteObject(hdrFont);
     DeleteObject(rowFont);
 }
