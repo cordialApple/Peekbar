@@ -260,8 +260,9 @@ void FanPopup::Paint(HDC hdc)
     RECT rc;
     GetClientRect(m_hwnd, &rc);
     const int dpiI = static_cast<int>(m_dpi);
+    const Theme& th = ActiveTheme();
 
-    HBRUSH bg = CreateSolidBrush(kCardBg);
+    HBRUSH bg = CreateSolidBrush(th.chipTop);
     FillRect(hdc, &rc, bg);
     DeleteObject(bg);
 
@@ -279,15 +280,27 @@ void FanPopup::Paint(HDC hdc)
     {
         const Tab& tab = m_tabs[i];
         RECT row = { rc.left + pad, y, rc.right - pad, y + rowH };
-        const COLORREF fill = tab.active ? kChipActiveBg : (i == m_hoverRow ? kRowHover : 0);
-        if (fill)
+        if (tab.active)
         {
-            HBRUSH hl = CreateSolidBrush(fill);
+            if (th.gradient)
+            {
+                FillVGradient(hdc, row, th.activeTop, th.activeBottom);
+            }
+            else
+            {
+                HBRUSH hl = CreateSolidBrush(th.activeTop);
+                FillRect(hdc, &row, hl);
+                DeleteObject(hl);
+            }
+        }
+        else if (i == m_hoverRow)
+        {
+            HBRUSH hl = CreateSolidBrush(th.hoverFill);
             FillRect(hdc, &row, hl);
             DeleteObject(hl);
         }
         RECT txt = { row.left + chipPad, row.top, row.right - chipPad, row.bottom };
-        SetTextColor(hdc, tab.active ? kTextActive : kTextPrimary);
+        SetTextColor(hdc, tab.active ? th.activeText : th.chipText);
         DrawTextW(hdc, tab.title.c_str(), -1, &txt,
                   DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
         y += rowH;

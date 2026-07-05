@@ -104,9 +104,12 @@ std::wstring Launcher::ConfigPath()
     return dir + L"\\" + ConfigFileName();
 }
 
+// NOTE: the host owns theme activation — after Load() it should call
+// Paint::SetActiveTheme(ThemeName()) (single line, added post-merge by the host workstream).
 void Launcher::Load()
 {
     m_buttons.clear();
+    m_themeName.clear();
 
     const std::wstring path = ConfigPath();
     std::wstring text;
@@ -127,6 +130,12 @@ void Launcher::Load()
 
         const std::wstring line = Trim(raw);
         if (line.empty() || line[0] == L'#' || line[0] == L';') continue;
+
+        if (line.rfind(L"theme=", 0) == 0)
+        {
+            m_themeName = Trim(line.substr(6));
+            continue;
+        }
 
         std::vector<std::wstring> f;
         size_t fp = 0;

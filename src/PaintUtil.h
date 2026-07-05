@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include <string>
 
 namespace Paint
 {
@@ -12,6 +13,43 @@ namespace Paint
     constexpr COLORREF kTextOnBg     = RGB(20,  24,  32);   // dark — legible on the light button pill
     constexpr COLORREF kButtonBg     = RGB(228, 231, 238);  // light pill — pops in the taskbar gap
     constexpr COLORREF kButtonBorder = RGB(120, 124, 132);
+
+    // Skinnable palette for the taskbar-gap pills/chips + fan rows. Each fillable
+    // surface carries a top+bottom gradient pair; gradient==false renders the top
+    // color as a flat matte (bottom is ignored). Isolated here so a re-skin is a
+    // one-struct change with no renderer edits.
+    struct Theme
+    {
+        COLORREF pillTop, pillBottom, pillBorder, pillText;
+        COLORREF chipTop, chipBottom, chipBorder, chipText;
+        COLORREF activeTop, activeBottom, activeText;
+        COLORREF hoverFill;
+        bool     gradient;
+    };
+
+    const Theme& ActiveTheme();
+    void         SetActiveTheme(const std::wstring& name);
+
+    // Vertical top→bottom gradient across rc. GradientFill only paints rectangles,
+    // so rounded surfaces must clip to a round region before calling this.
+    inline void FillVGradient(HDC hdc, const RECT& rc, COLORREF top, COLORREF bottom)
+    {
+        TRIVERTEX v[2];
+        v[0].x     = rc.left;
+        v[0].y     = rc.top;
+        v[0].Red   = static_cast<COLOR16>(GetRValue(top) << 8);
+        v[0].Green = static_cast<COLOR16>(GetGValue(top) << 8);
+        v[0].Blue  = static_cast<COLOR16>(GetBValue(top) << 8);
+        v[0].Alpha = 0;
+        v[1].x     = rc.right;
+        v[1].y     = rc.bottom;
+        v[1].Red   = static_cast<COLOR16>(GetRValue(bottom) << 8);
+        v[1].Green = static_cast<COLOR16>(GetGValue(bottom) << 8);
+        v[1].Blue  = static_cast<COLOR16>(GetBValue(bottom) << 8);
+        v[1].Alpha = 0;
+        GRADIENT_RECT gr = { 0, 1 };
+        GradientFill(hdc, v, 2, &gr, 1, GRADIENT_FILL_RECT_V);
+    }
 
     inline int ScalePx(int px, int dpi) { return MulDiv(px, dpi, 96); }
 

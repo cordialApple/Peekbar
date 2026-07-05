@@ -6,27 +6,60 @@
 
 using namespace Paint;
 
+namespace
+{
+    using namespace Paint;
+
+    // Fill a rounded pill: clip to a round region, paint the themed gradient (or a flat
+    // top-color matte), drop the clip, then stroke the rounded border with a NULL_BRUSH
+    // RoundRect so only the pen draws. Restores every selected object and frees the region.
+    void FillRoundedThemed(HDC hdc, const RECT& rc, COLORREF top, COLORREF bottom,
+                           COLORREF border, bool gradient, int dpiI)
+    {
+        // RoundRect's last two args are the corner ELLIPSE diameter (2×radius); clamp
+        // to the pill height so it reads as a rounded end, not a doubled radius.
+        const int d = (std::min)(ScalePx(6, dpiI), static_cast<int>(rc.bottom - rc.top));
+
+        // Same box for clip + border so the gradient can't reach corner pixels the
+        // RoundRect stroke doesn't enclose. SaveDC/RestoreDC so we restore whatever clip
+        // the caller had rather than blowing away the whole HDC clip with SelectClipRgn(NULL).
+        HRGN rgn = CreateRoundRectRgn(rc.left, rc.top, rc.right, rc.bottom, d, d);
+        const int saved = SaveDC(hdc);
+        SelectClipRgn(hdc, rgn);
+        DeleteObject(rgn);
+        if (gradient)
+        {
+            FillVGradient(hdc, rc, top, bottom);
+        }
+        else
+        {
+            HBRUSH br = CreateSolidBrush(top);
+            FillRect(hdc, &rc, br);
+            DeleteObject(br);
+        }
+        RestoreDC(hdc, saved);
+
+        HPEN    pen = CreatePen(PS_SOLID, (std::max)(1, ScalePx(1, dpiI)), border);
+        HGDIOBJ op  = SelectObject(hdc, pen);
+        HGDIOBJ ob  = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+        RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, d, d);
+        SelectObject(hdc, ob);
+        SelectObject(hdc, op);
+        DeleteObject(pen);
+    }
+}
+
 namespace Renderer
 {
     void DrawButton(HDC hdc, const RECT& rc, const Button& b, int dpiI)
     {
-        HBRUSH br  = CreateSolidBrush(kButtonBg);
-        HPEN   pen = CreatePen(PS_SOLID, (std::max)(1, ScalePx(1, dpiI)), kButtonBorder);
-        HGDIOBJ ob = SelectObject(hdc, br);
-        HGDIOBJ op = SelectObject(hdc, pen);
-        // RoundRect's last two args are the corner ELLIPSE diameter (2×radius); clamp
-        // to the pill height so it reads as a rounded end, not a doubled radius.
-        const int d = (std::min)(ScalePx(6, dpiI), static_cast<int>(rc.bottom - rc.top));
-        RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, d, d);
-        SelectObject(hdc, op);
-        SelectObject(hdc, ob);
-        DeleteObject(pen);
-        DeleteObject(br);
+        const Theme& t = ActiveTheme();
+        FillRoundedThemed(hdc, rc, t.pillTop, t.pillBottom, t.pillBorder, t.gradient, dpiI);
 
         HFONT font = MakeFont(8, FW_MEDIUM, dpiI);
         HGDIOBJ of = SelectObject(hdc, font);
         SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, kTextOnBg);
+        SetTextColor(hdc, t.pillText);
         const int tp = ScalePx(3, dpiI);
         RECT txt = { rc.left + tp, rc.top, rc.right - tp, rc.bottom };
         if (txt.right > txt.left)
@@ -38,21 +71,13 @@ namespace Renderer
 
     void DrawChip(HDC hdc, const RECT& rc, const std::wstring& title, int dpiI)
     {
-        HBRUSH br  = CreateSolidBrush(kCardBg);
-        HPEN   pen = CreatePen(PS_SOLID, (std::max)(1, ScalePx(1, dpiI)), kButtonBorder);
-        HGDIOBJ ob = SelectObject(hdc, br);
-        HGDIOBJ op = SelectObject(hdc, pen);
-        const int d = (std::min)(ScalePx(6, dpiI), static_cast<int>(rc.bottom - rc.top));
-        RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, d, d);
-        SelectObject(hdc, op);
-        SelectObject(hdc, ob);
-        DeleteObject(pen);
-        DeleteObject(br);
+        const Theme& t = ActiveTheme();
+        FillRoundedThemed(hdc, rc, t.chipTop, t.chipBottom, t.chipBorder, t.gradient, dpiI);
 
         HFONT font = MakeFont(9, FW_NORMAL, dpiI);
         HGDIOBJ of = SelectObject(hdc, font);
         SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, kTextPrimary);
+        SetTextColor(hdc, t.chipText);
         const int tp = ScalePx(8, dpiI);
         RECT txt = { rc.left + tp, rc.top, rc.right - tp, rc.bottom };
         if (txt.right > txt.left)

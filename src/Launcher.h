@@ -26,6 +26,10 @@ public:
     void Load();
     const std::vector<Button>& Buttons() const { return m_buttons; }
 
+    // Theme name from an optional `theme=<name>` config line; empty when unset.
+    // Feed to Paint::SetActiveTheme (empty/unknown falls back to "slate").
+    const std::wstring& ThemeName() const { return m_themeName; }
+
     // Fire-and-forget: launches on a detached MTA worker so a slow shell handler
     // never blocks the dock's UI pump (CLAUDE.md rule 5).
     void Execute(const Button& b) const;
@@ -36,4 +40,5 @@ public:
 
 private:
     std::vector<Button> m_buttons;
+    std::wstring        m_themeName;
 };

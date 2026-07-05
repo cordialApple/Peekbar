@@ -9,6 +9,7 @@ add_executable(browser_shell_os WIN32
     src/HostWindow.cpp
     src/WindowMonitor.cpp
     src/Renderer.cpp
+    src/PaintUtil.cpp
     src/Store.cpp
     src/TabReader.cpp
     src/FanPopup.cpp
@@ -24,7 +25,7 @@ target_compile_definitions(browser_shell_os PRIVATE
     WINVER=0x0A00
     NTDDI_VERSION=0x0A000004
 )
-target_link_libraries(browser_shell_os PRIVATE shell32 user32 gdi32 psapi ole32 oleaut32 UIAutomationCore)
+target_link_libraries(browser_shell_os PRIVATE shell32 user32 gdi32 msimg32 psapi ole32 oleaut32 UIAutomationCore)
 
 # Decoupled observability tool: separate target, no shared code, never linked
 # into the shell. One repo, two targets — see docs/profiler-project-structure.md.
