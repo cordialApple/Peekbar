@@ -97,6 +97,17 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-04 — Interactive-fan Step 2 done + SPIKE A/B CONFIRMED on Win11. Spike run: SetForegroundWindow
+  ret=1 no ASFW → tab switched (R1 recipe good; GetForegroundWindow!=target right-after is just async
+  restore, harmless since ret=1 skips flash); Select hr=0 confirmed IsSelected=1; tab-tree ready ~330ms
+  (single UIA walk latency, NOT retries) → 2.3 constants UNCHANGED (50ms poll / 3s ceilings / 60ms settle).
+  ~560ms total = perceivable lag (window-forward→330ms re-walk→confirm); acceptable v1, tree-walk is the
+  future optimization target. Step 2 code: DockWindow kFanActivateMsg=WM_APP+7 handler — resolve wanted title
+  from Store (pre-restore) → RestoreWindow (restore+SFW FIRST) → RequestActivate(target,title,idx) → fan
+  Hide() (close-on-click, user UX). Burst (threading + AppBar-hygiene) BOTH CLEAN → adjudicator MAY PROCEED.
+  Folded the one debt it surfaced: IsWindow(hwnd) guard on ActivateTab gate-1 so a click racing a close
+  fails fast instead of spinning 3s. Build clean. Next: Step 3 — FanPopup RowAt + row→original-index map +
+  POST kFanActivateMsg on WM_LBUTTONDOWN (the wiring that actually fires the handler); lenses DPI + threading.
 - 2026-07-04 — Interactive-fan FEATURE Step 1 done (TabReader Activate path). Built combined throwaway
   SPIKE (scratchpad/spike_activate.exe, VS2026 vcvars) reproducing the full flow (NOACTIVATE fan click →
   UI SetForegroundWindow [SPIKE A] → worker UIA re-walk w/ readiness+tree retry → Select → confirm [SPIKE

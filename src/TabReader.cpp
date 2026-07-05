@@ -260,9 +260,10 @@ TabActivateResult ActivateTab(IUIAutomation* automation, HWND hwnd,
 
     const long long t0 = NowMs();
 
-    // Gate 1: window readiness (restore is async).
+    // Gate 1: window readiness (restore is async). Bail fast if the window died
+    // between the fan click and here (closed while the request was queued).
     bool ready = false;
-    while (NowMs() - t0 < kReadyTimeoutMs)
+    while (IsWindow(hwnd) && NowMs() - t0 < kReadyTimeoutMs)
     {
         if (IsWindowVisible(hwnd) && !IsIconic(hwnd)) { ready = true; break; }
         if (CancelableSleep(stop, kPollIntervalMs)) return r;

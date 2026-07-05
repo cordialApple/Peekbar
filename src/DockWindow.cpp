@@ -24,6 +24,7 @@ namespace
     constexpr UINT    kConfigMs         = 300;
     constexpr UINT    kRemeasureMsg     = WM_APP + 5;  // LOCATIONCHANGE hook → debounce
     constexpr UINT    kGapStateMsg      = WM_APP + 6;  // overlay → dock: gap host active?
+    constexpr UINT    kFanActivateMsg   = WM_APP + 7;  // fan(UI) → dock: a tab row was clicked
     constexpr UINT    kTabActivateResultMsg = WM_APP + 8;  // TabReader worker → dock: activate outcome
     // 5b.3: re-measure the gap on task-list EVENT_OBJECT_LOCATIONCHANGE, debounced
     // through this one-shot (RequestMeasure is already coalesced by the overlay worker).
@@ -574,6 +575,29 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             delete payload;
             InvalidateRect(hwnd, nullptr, FALSE);
         }
+        return 0;
+    }
+
+    case kFanActivateMsg:
+    {
+        // wparam = target browser HWND; lparam = index into that window's Store tab
+        // vector (FanPopup already mapped displayed row → original index). Resolve the
+        // wanted title NOW (pre-restore Store state), then restore+foreground FIRST
+        // (R1: patterns on a background/iconic window are unreliable) and hand the
+        // worker a title to re-match against the post-restore tree.
+        const HWND target   = reinterpret_cast<HWND>(wparam);
+        const int  tabIndex = static_cast<int>(lparam);
+        const auto& all = m_store.All();
+        auto it = all.find(target);
+        if (it != all.end() && tabIndex >= 0 &&
+            tabIndex < static_cast<int>(it->second.tabs.size()))
+        {
+            std::wstring wanted = it->second.tabs[tabIndex].title;
+            RestoreWindow(target);
+            if (m_tabReader)
+                m_tabReader->RequestActivate(target, std::move(wanted), tabIndex);
+        }
+        if (m_fanPopup) m_fanPopup->Hide();   // close on click (committed; window coming forward is the feedback)
         return 0;
     }
 
