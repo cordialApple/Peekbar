@@ -97,6 +97,17 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-04 — Interactive-fan post-accept fixes (user tested steps 1-5, all 3 behaviors work). (A) Multi-window
+  fan-nav bug: vertical card stacking means moving from a lower card up to its fan transits the cards above it;
+  Step-4 instant-switch hijacked the fan mid-transit. Fix: reverted to DELAYED switch — a newly hovered card
+  always (re)starts kHoverTimer(250ms)→ShowFanFor; fast transit to the fan no longer switches, and WM_MOUSELEAVE
+  →BeginHoverGrace KillTimer(kHoverTimer) cancels the pending switch as the cursor enters the fan. (B) Gmail/
+  GitHub gap pills 16% narrower: GapButtonLayout pillW ScalePx(84)→71. (Tried dock-fallback ButtonLayout 48→40
+  too but 40 clips "GitHub" → reverted to 48; user only sees the gap pills.) Burst (visual/layout + threading/
+  interaction) → adjudicator MAY PROCEED (3 threading findings all cleared: CancelGrace=KillTimer no-op; ShowFanFor
+  same-card re-show idempotent + not a regression; WM_DESTROY order pre-existing+safe). Applied optional hygiene:
+  hoisted KillTimer(kHoverTimer) above m_fanPopup.reset() in WM_DESTROY. Build clean. USER-CONFIRMED WORKING;
+  these two are refinements (visual re-check optional).
 - 2026-07-04 — Interactive-fan Step 5 done → FEATURE CODE-COMPLETE (all 5 steps). Empty-state option (a):
   Renderer::Paint dropped the "no minimized browsers" placeholder — empty dock now paints only bg fill +
   fallback buttons (card loop unconditional, iterates 0×). Paint-only: DockHeightPx still clamps to ≥1 idle

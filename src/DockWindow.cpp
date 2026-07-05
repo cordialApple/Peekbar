@@ -652,16 +652,13 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         {
             m_hoverCard = card;
             if (card)
-            {
-                if (m_fanPopup && m_fanPopup->Visible())
-                    ShowFanFor(card);   // instant switch to the newly hovered card's fan
-                else
-                    SetTimer(hwnd, kHoverTimer, kHoverMs, nullptr);  // delayed first-open
-            }
+                // Delayed open AND switch: cards stack vertically, so moving from a
+                // lower card up to its fan transits the cards above it. A dwell timer
+                // (not an instant switch) lets that transit pass without hijacking the
+                // fan; WM_MOUSELEAVE kills this timer the moment the cursor enters the fan.
+                SetTimer(hwnd, kHoverTimer, kHoverMs, nullptr);
             else
-            {
                 BeginHoverGrace();  // over empty dock → grace-close
-            }
         }
         return 0;
     }
@@ -700,12 +697,12 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         return 0;
 
     case WM_DESTROY:
+        KillTimer(hwnd, kHoverTimer);  // kill before m_fanPopup.reset so no late timer re-shows the fan
         m_configWatcher.reset();  // join watcher worker before teardown
         m_tabReader.reset();  // join worker before unhooking and removing appbar
         m_fanPopup.reset();
         m_taskbarOverlay.reset();
         KillTimer(hwnd, kDebounceTimer);
-        KillTimer(hwnd, kHoverTimer);
         KillTimer(hwnd, kSnapshotTimer);
         KillTimer(hwnd, kConfigTimer);
         KillTimer(hwnd, kOverlayTimer);

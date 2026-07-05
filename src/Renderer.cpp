@@ -177,7 +177,7 @@ namespace Renderer
         const int dpiI  = dpi ? static_cast<int>(dpi) : 96;
         const int pad   = ScalePx(6, dpiI);
         const int gap   = ScalePx(6, dpiI);
-        const int pillW = ScalePx(84, dpiI);
+        const int pillW = ScalePx(71, dpiI);   // 16% narrower than 84
         const int pillH = (std::min)(ScalePx(28, dpiI), static_cast<int>(rc.bottom - rc.top) - 2 * pad);
         if (pillH < 1) return hits;
 
