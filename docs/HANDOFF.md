@@ -37,7 +37,12 @@ performance over ETW.
 | Profiler (parallel workstream) | 🟡 consumer P.2–P.4 code complete + builds green; P.1 shell emit not done — see `docs/plans/profiler.md` |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
-**Next action: chip-rework Stage 4 CODE-COMPLETE — dead-code purge + `DockWindow`→`HostWindow` rename (aa84dc1) + overlay persistence/perf hardening (a3d8cbc) + fan polish B/C (bd645fd) all committed. Remaining tiny doc polish: reword CLAUDE.md rule 4 (AppBar hygiene → "no AppBar registered; ABM_GETSTATE query-only") + ARCHITECTURE "dock strip" mentions (deferred, low-pri; rule 4 still valid vacuously). NEXT FEATURES (user-decided): A = pill icon-fallback, icons extracted from each button's target exe (shrink pill→~28px icon square before dropping when gap tight; NO icon render exists today — medium); D = Theme struct + GradientFill (msimg32) — config-selectable, ConfigWatcher hot-reload = live theme switch; bubbles deferred (need UpdateLayeredWindow alpha rework vs current LWA_COLORKEY). Recommended order: D (conflict-free: Renderer/PaintUtil/FanPopup/CMake) then A (Renderer + new icon cache + overlay). All Windows visual checks still pending (see below).**
+**Next action: chip-rework Stage 4 CODE-COMPLETE — dead-code purge + `DockWindow`→`HostWindow` rename (aa84dc1) + overlay persistence/perf hardening (a3d8cbc) + fan polish B/C (bd645fd) all committed. Remaining tiny doc polish: reword CLAUDE.md rule 4 (AppBar hygiene → "no AppBar registered; ABM_GETSTATE query-only") + ARCHITECTURE "dock strip" mentions (deferred, low-pri; rule 4 still valid vacuously). DONE since: quit-affordance fix, D (themes+gradient), fullscreen-in-place suppression fix. NEXT FEATURE: A =
+pill icon-fallback, icons extracted from each button's target exe (shrink pill→~28px icon square before dropping
+when gap tight; NO icon render exists today — medium; touches Renderer DrawButton/GapChipLayout + new icon cache
++ overlay). Bubbles still deferred (need UpdateLayeredWindow alpha rework vs current LWA_COLORKEY). All Windows
+visual checks still pending (see below): NEW = slate gradient look + `theme=matte|steel` live switch; F11/video
+fullscreen hides pills+chips; right-click chip/pill or Ctrl+Alt+Shift+Q quits.**
 Active workstream: **taskbar-chip rework** — kill the dock, put minimized-window chips in the taskbar gap
 (plan: `~/.claude/plans/dreamy-stirring-walrus.md`; feasibility: `docs/research/taskbar-chip-feasibility.md`).
 Stage 1 done: chips (minimized windows, title-only, insertion-ordered) render side-by-side in the gap
@@ -134,6 +139,20 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-05 — Feature D (themes+gradient) + fullscreen-suppression fix, both by parallel Opus worktree agents,
+  merged clean (non-overlapping files). D: `Paint::Theme` struct + `FillVGradient` (msimg32 `GradientFill`) +
+  `PaintUtil.cpp` themes slate(default,dark top-lit metallic)/matte(flat=old look)/steel; `Renderer::FillRoundedThemed`
+  (clip round rgn → gradient/flat → border) rewrites DrawButton/DrawChip; FanPopup rows themed; `Launcher` parses
+  optional `theme=<name>`; host calls `Paint::SetActiveTheme(ThemeName())` at Create + config-reload (live re-skin
+  via ConfigWatcher). Fullscreen fix: overlay stayed visible on IN-PLACE fullscreen (F11/video/borderless) — no
+  EVENT_SYSTEM_FOREGROUND fires; safety timer only re-derived while already suppressed; ABN_FULLSCREENAPP dead
+  since Stage-3 AppBar removal. Fix: thread-scoped fg-window `EVENT_OBJECT_LOCATIONCHANGE` hook
+  (`HookForegroundLocation`, re-scoped each foreground change, routed via `s_fgLocationHook`, OBJID_WINDOW +120ms
+  debounce → UpdateOverlaySuppression) + safety timer now ALWAYS re-derives. Burst: fullscreen lens (threading/
+  teardown) 5 nits, no blocker (WM_ENDSESSION dtor-chain unhook = same as all hooks; host is stack obj). GDI lens
+  BLOCKED 2: F1 SelectClipRgn(NULL) nuked whole-HDC clip → SaveDC/RestoreDC; F2 rgn rc.right+1 vs border rc.right
+  → gradient corner bleed → matched box; +F3 fan inactive text → th.chipText. All fixed, rebuilt clean → MAY
+  PROCEED. Build links clean. Runtime/visual verify pending on Windows. Both agent worktrees left for reclaim.
 - 2026-07-05 — Quit-affordance regression fix. Stage 3 killed the dock strip AND its right-click-to-quit;
   the hidden host never shows and the gap overlay passes right-clicks to the taskbar → app had NO close path.
   Restored two: (1) right-click a chip/pill → overlay `WM_RBUTTONUP` `PostMessageW(host, WM_CLOSE)` (empty gap
