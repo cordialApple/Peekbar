@@ -104,6 +104,10 @@ bool DockWindow::Create(HINSTANCE instance)
     // m_hwnd already set by WM_NCCREATE, but belt + suspenders.
     m_hwnd = hwnd;
 
+    // Explorer broadcasts this to every top-level window when it (re)creates the taskbar
+    // (crash-restart, some DPI/theme changes). Our hidden host is top-level → receives it.
+    m_taskbarCreatedMsg = RegisterWindowMessageW(L"TaskbarCreated");
+
     for (HWND h : ScanBrowserFrames())
     {
         StoreWindow(m_store, h);
@@ -151,15 +155,10 @@ bool DockWindow::Create(HINSTANCE instance)
         m_taskbarOverlay->RequestMeasure();
         SetTimer(hwnd, kOverlayTimer, kOverlayMs, nullptr);  // backstop: guarantees a 2nd verdict if the 1st post is lost
         SetTimer(hwnd, kSafetyTimer, kSafetyMs, nullptr);    // periodic self-heal (see kSafetyTimer)
-        // Re-measure when the task list resizes. Scope to explorer's PID so we only
-        // wake on taskbar layout changes, not every window move system-wide.
-        DWORD explorerPid = 0;
-        if (HWND tray = FindWindowW(L"Shell_TrayWnd", nullptr))
-            GetWindowThreadProcessId(tray, &explorerPid);
-        if (explorerPid)
-            m_winEventHookLocation = SetWinEventHook(
-                EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE,
-                nullptr, WinEventProc, explorerPid, 0, WINEVENT_OUTOFCONTEXT);
+        // Re-measure when the task list resizes (open/close apps → Win11 center group
+        // shifts → gap grows/shrinks). Scope to explorer's PID so we only wake on taskbar
+        // layout changes, not every window move system-wide.
+        HookTaskbarLocation();
     }
 
     // Watch the config dir for live edits. Create it first so the watch attaches even
@@ -214,6 +213,23 @@ void DockWindow::UpdateOverlaySuppression()
     m_taskbarOverlay->SetSuppressed(suppress);
     if (!suppress)
         SetTimer(m_hwnd, kOverlayTimer, kOverlayMs, nullptr);
+}
+
+// (Re)scope the LOCATIONCHANGE hook to the live explorer PID. On an explorer restart the
+// old hook is dead (its PID is gone), so without this the gap would never re-measure again
+// — the overlay would freeze at its last position. Idempotent: unhook-then-hook.
+void DockWindow::HookTaskbarLocation()
+{
+    if (m_winEventHookLocation)
+    {
+        UnhookWinEvent(m_winEventHookLocation);
+        m_winEventHookLocation = nullptr;
+    }
+    const DWORD explorerPid = TaskbarOverlayWindow::TaskbarProcessId();
+    if (explorerPid)
+        m_winEventHookLocation = SetWinEventHook(
+            EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE,
+            nullptr, WinEventProc, explorerPid, 0, WINEVENT_OUTOFCONTEXT);
 }
 
 // Coalesce snapshot requests: a burst (Win+M minimizing many windows, or a flood
@@ -306,14 +322,41 @@ void CALLBACK DockWindow::WinEventProc(HWINEVENTHOOK, DWORD event, HWND hwnd,
 
 LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
+    // Explorer (re)created the taskbar. RegisterWindowMessageW ids aren't compile-time
+    // constants, so this can't be a switch arm. The old PID-scoped LOCATIONCHANGE hook is
+    // dead and the tray HWND/monitor changed — re-scope the hook, drop the cached monitor,
+    // re-derive suppression, and re-measure so the overlay re-establishes on the new taskbar.
+    if (m_taskbarCreatedMsg && msg == m_taskbarCreatedMsg)
+    {
+        HookTaskbarLocation();
+        if (m_taskbarOverlay)
+        {
+            m_taskbarOverlay->InvalidateTaskbarCache();
+            UpdateOverlaySuppression();
+            m_taskbarOverlay->RequestMeasure();
+        }
+        return 0;
+    }
+
     switch (msg)
     {
     case WM_DISPLAYCHANGE:
-        if (m_taskbarOverlay) m_taskbarOverlay->RequestMeasure();  // gap geometry may move
+        // A topology change can recreate Shell_TrayWnd (possibly on another monitor)
+        // without a TaskbarCreated broadcast — drop the cached tray so the fullscreen
+        // monitor check can't consult a stale/recycled HWND.
+        if (m_taskbarOverlay)
+        {
+            m_taskbarOverlay->InvalidateTaskbarCache();
+            m_taskbarOverlay->RequestMeasure();  // gap geometry may move
+        }
         return 0;
 
     case WM_DPICHANGED:
-        if (m_taskbarOverlay) m_taskbarOverlay->RequestMeasure();  // re-measure at new DPI
+        if (m_taskbarOverlay)
+        {
+            m_taskbarOverlay->InvalidateTaskbarCache();
+            m_taskbarOverlay->RequestMeasure();  // re-measure at new DPI
+        }
         return 0;
 
     case WM_QUERYENDSESSION:
@@ -417,6 +460,11 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         }
         else if (wparam == kSafetyTimer)  // periodic; NOT killed here
         {
+            // Self-heal a dropped LOCATIONCHANGE hook: if explorer's PID was momentarily
+            // unresolvable at Create or at a TaskbarCreated restart, the hook is null and
+            // the gap would only re-measure on this slow tick. Re-hook once it resolves.
+            // Costs a FindTaskbar only while the hook is actually null (normal case: no-op).
+            if (!m_winEventHookLocation) HookTaskbarLocation();
             // Self-heal missed events. Suppressed: re-derive (recovers a missed flyout/
             // fullscreen release — the only steady-state OpenProcess cost). Not hosting:
             // re-measure (recovers a stuck-hidden transient). While hosting-and-healthy

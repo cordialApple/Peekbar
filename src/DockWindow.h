@@ -41,6 +41,10 @@ private:
     // in TaskbarOverlayWindow (rule 6).
     void UpdateOverlaySuppression();
     bool FullscreenOnDockMonitor(HWND fg) const;
+    // (Re)establish the explorer-PID-scoped LOCATIONCHANGE hook. Called at Create and
+    // again on TaskbarCreated — an explorer restart gives the taskbar a new PID, so the
+    // old hook is dead and the gap would never re-measure without re-scoping.
+    void HookTaskbarLocation();
 
     HWND              m_hwnd             = nullptr;
     Store             m_store;
@@ -52,6 +56,7 @@ private:
     HWINEVENTHOOK     m_winEventHookForeground = nullptr;
     HWINEVENTHOOK     m_winEventHookLocation   = nullptr;
     bool              m_overlaySuppressed      = false;  // current overlay suppression (dedupes)
+    UINT              m_taskbarCreatedMsg      = 0;      // RegisterWindowMessageW(L"TaskbarCreated")
     std::unique_ptr<TabReader>     m_tabReader;
     std::unique_ptr<FanPopup>      m_fanPopup;
     std::unique_ptr<ConfigWatcher> m_configWatcher;

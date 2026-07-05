@@ -42,8 +42,17 @@ public:
 
     // UI thread: the monitor the taskbar (and thus this overlay) lives on, or nullptr.
     // The hidden host is 1x1 at origin, so it can't source this itself (rule 6: taskbar
-    // geometry stays here).
+    // geometry stays here). Caches the verified tray HWND so the per-foreground fullscreen
+    // check doesn't re-run FindTaskbar's OpenProcess each time (debt S3-taskbarmon-openprocess).
     HMONITOR TaskbarMonitor() const;
+
+    // UI thread: drop the cached tray handle. Call after an explorer restart
+    // (TaskbarCreated), when the old Shell_TrayWnd is gone and a new one exists.
+    void InvalidateTaskbarCache() { m_uiTray = nullptr; }
+
+    // PID of the explorer-owned taskbar (0 if none). Rule 6: taskbar discovery stays here,
+    // so the host can PID-scope its LOCATIONCHANGE hook without re-implementing FindTaskbar.
+    static DWORD TaskbarProcessId();
 
     // Ask the worker to re-measure (non-blocking). Safe to call from a timer or a
     // WM_DISPLAYCHANGE / WM_DPICHANGED / LOCATIONCHANGE handler on the UI thread.
@@ -94,6 +103,7 @@ private:
     HWND            m_hoverChip   = nullptr;   // last chip we posted hover for (dedupe)
     bool            m_mouseTracking = false;   // TME_LEAVE armed (whole-overlay leave)
     Gap             m_lastGap     = { {}, false };  // last measured gap, for RefreshContent re-fit
+    mutable HWND    m_uiTray      = nullptr;   // UI-thread cache for TaskbarMonitor (NOT the worker's)
     bool            m_suppressed      = false;  // flyout/fullscreen force-hide (UI thread)
     int             m_invalidStreak   = 0;      // consecutive bad measures (hysteresis, UI thread)
 

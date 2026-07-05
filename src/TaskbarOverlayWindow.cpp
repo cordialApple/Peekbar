@@ -368,11 +368,25 @@ void TaskbarOverlayWindow::ApplyGap(const Gap& g, bool allowHysteresis)
 }
 
 // UI thread: the monitor the taskbar (and this overlay) live on. Rule 6: taskbar
-// geometry stays isolated here.
+// geometry stays isolated here. Caches the tray HWND — FindTaskbar's OpenProcess
+// (explorer-ownership verify) ran on every foreground change before. The cache is
+// UI-thread-only (the worker's MeasureGap has its own FindTaskbar call); IsWindow
+// catches an explorer restart and TaskbarCreated invalidates it explicitly.
 HMONITOR TaskbarOverlayWindow::TaskbarMonitor() const
 {
-    HWND tray = FindTaskbar();
-    return tray ? MonitorFromWindow(tray, MONITOR_DEFAULTTONEAREST) : nullptr;
+    if (!m_uiTray || !IsWindow(m_uiTray))
+        m_uiTray = FindTaskbar();
+    return m_uiTray ? MonitorFromWindow(m_uiTray, MONITOR_DEFAULTTONEAREST) : nullptr;
+}
+
+// static — rule 6: taskbar discovery stays here. PID of the explorer-owned taskbar so
+// the host can PID-scope its LOCATIONCHANGE hook (and re-scope after an explorer restart).
+DWORD TaskbarOverlayWindow::TaskbarProcessId()
+{
+    DWORD pid = 0;
+    if (HWND tray = FindTaskbar())
+        GetWindowThreadProcessId(tray, &pid);
+    return pid;
 }
 
 void TaskbarOverlayWindow::SetSuppressed(bool suppressed)

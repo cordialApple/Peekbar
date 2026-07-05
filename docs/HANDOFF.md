@@ -67,8 +67,9 @@ WM_MOUSELEAVE recovers) — logged, not fixed.
 Debt (from Stage 3 adjudication, non-blocking):
 - [S3-rule6-flyout] Start/Search process-name heuristics (`StartMenuExperienceHost.exe`/`SearchHost.exe`)
   live in `DockWindow::UpdateOverlaySuppression`, not `TaskbarOverlayWindow` (rule-6 drift; pre-existing).
-- [S3-taskbarmon-openprocess] `TaskbarMonitor()` runs `FindTaskbar`/`OpenProcess` on the UI thread per
-  foreground-change + 1500ms tick (same order as the already-present `ProcessBaseName` cost; cache to shave).
+- [S3-taskbarmon-openprocess] ✅ RESOLVED 2026-07-05 — `TaskbarMonitor()` now caches the verified tray
+  HWND (`m_uiTray`, UI-thread-only, `IsWindow`-guarded, dropped on `TaskbarCreated`/display/DPI change);
+  `MonitorFromWindow` recomputed cheaply each call. Worker's `MeasureGap` keeps its own `FindTaskbar`.
 - [S3-gap-shutdown-leak] `TaskbarOverlayWindow::Destroy` join-then-DestroyWindow can drop one queued
   `kApplyGapMsg` `Gap*` (shutdown-only; OS reclaims the heap).
 
@@ -133,6 +134,18 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-05 — Overlay persistence + perf hardening (parallel Opus worktree agent, merged clean — 4 files, no
+  overlap w/ the purge/fan commits). (1) HIGH: overlay froze forever after an explorer restart — LOCATIONCHANGE
+  hook was scoped to explorer's old PID. Fix: `RegisterWindowMessageW(L"TaskbarCreated")` (broadcast to top-level
+  windows on taskbar (re)creation) → `HookTaskbarLocation()` re-scopes hook + `InvalidateTaskbarCache` +
+  re-suppress + re-measure. (2) HIGH: transient PID=0 during restart left hook null forever → `kSafetyTimer`
+  re-hooks whenever `m_winEventHookLocation` is null (no-op in steady state). (3) MED: cached tray HWND kills the
+  per-foreground `OpenProcess` (debt S3-taskbarmon-openprocess). (4) LOW: `InvalidateTaskbarCache` on
+  DISPLAYCHANGE/DPICHANGED. Rule 6 tightened: `DockWindow` drops its own `FindWindowW(Shell_TrayWnd)` →
+  `TaskbarOverlayWindow::TaskbarProcessId()`. WM_DESTROY still unhooks all hooks once (595); no AppBar.
+  Compile clean; link blocked only by live dock PID. Agent self-inspected (threading/teardown/geometry) + diff
+  re-reviewed against rules 4/5/6. Runtime/visual verify pending on Windows (explorer restart; open/close a
+  terminal → gap re-fits). Next: `DockWindow`→`HostWindow` rename, then A (pill icons from exe), D (Theme+gradient).
 - 2026-07-05 — Chip-rework Stage 4 started: dead-code purge. Deleted `Renderer::Paint`(dock)/`CardLayout`/
   `CardHit`/`DrawCard`/`ButtonLayout`/`GapButtonLayout` + PaintUtil `kBandHeightDip`/`kBandPadDip`/`kMaxBands`/
   `kChipBg` (all self-referential, zero live callers — overlay paints via `TaskbarOverlayWindow::Paint`→
