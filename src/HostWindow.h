@@ -45,6 +45,10 @@ private:
     // again on TaskbarCreated — an explorer restart gives the taskbar a new PID, so the
     // old hook is dead and the gap would never re-measure without re-scoping.
     void HookTaskbarLocation();
+    // (Re)scope a LOCATIONCHANGE hook to the foreground window's thread. Catches an app going
+    // fullscreen in place (F11 / video / borderless) — no EVENT_SYSTEM_FOREGROUND fires then,
+    // so suppression would otherwise never re-derive. Re-scoped on every foreground change.
+    void HookForegroundLocation(HWND fg);
 
     HWND              m_hwnd             = nullptr;
     Store             m_store;
@@ -55,6 +59,7 @@ private:
     HWINEVENTHOOK     m_winEventHookNameChange = nullptr;
     HWINEVENTHOOK     m_winEventHookForeground = nullptr;
     HWINEVENTHOOK     m_winEventHookLocation   = nullptr;
+    HWINEVENTHOOK     m_winEventHookFgLocation = nullptr;  // fg-window in-place fullscreen watch
     bool              m_overlaySuppressed      = false;  // current overlay suppression (dedupes)
     UINT              m_taskbarCreatedMsg      = 0;      // RegisterWindowMessageW(L"TaskbarCreated")
     std::unique_ptr<TabReader>     m_tabReader;

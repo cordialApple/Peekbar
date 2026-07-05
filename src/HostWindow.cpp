@@ -1,5 +1,6 @@
 #include "HostWindow.h"
 #include "WindowMonitor.h"
+#include "PaintUtil.h"
 #include <algorithm>
 
 namespace
@@ -19,14 +20,22 @@ namespace
     constexpr UINT    kTabActivateResultMsg = WM_APP + 8;  // TabReader worker → dock: activate outcome
     constexpr UINT    kChipHoverMsg     = WM_APP + 9;  // overlay → dock: hovered chip changed (HWND, or 0)
     constexpr UINT    kChipClickMsg     = WM_APP + 10; // overlay → dock: a chip was clicked (restore its window)
+    // Foreground-window LOCATIONCHANGE: an app going fullscreen IN PLACE (browser F11,
+    // YouTube/video element, borderless game) keeps the same foreground HWND, so it fires
+    // NO EVENT_SYSTEM_FOREGROUND — only its own rect/style changes. A thread-scoped hook on
+    // the current foreground window catches that and re-derives suppression. Debounced via
+    // kSuppressTimer so a resize-animation burst collapses into one ProcessBaseName pass.
+    constexpr UINT     kFgLocationMsg   = WM_APP + 11;
+    constexpr UINT_PTR kSuppressTimer   = 7;
+    constexpr UINT     kSuppressMs      = 120;
     // 5b.3: re-measure the gap on task-list EVENT_OBJECT_LOCATIONCHANGE, debounced
     // through this one-shot (RequestMeasure is already coalesced by the overlay worker).
     constexpr UINT_PTR kOverlayTimer    = 5;
     constexpr UINT    kOverlayMs        = 200;
     constexpr UINT    kResumeRemeasureMs = 500;  // let the shell settle after wake before re-measuring
     // Low-frequency safety re-check: self-heals the overlay from any stuck-hidden /
-    // stuck-suppressed state whose clearing event was missed (Start self-dismiss, a
-    // dropped ABN_FULLSCREENAPP exit, a transient invalid with no follow-up LOCATIONCHANGE).
+    // stuck-suppressed state whose clearing event was missed (Start self-dismiss, a missed
+    // fullscreen enter/exit, a transient invalid with no follow-up LOCATIONCHANGE).
     constexpr UINT_PTR kSafetyTimer     = 6;
     constexpr UINT    kSafetyMs         = 1500;
     constexpr int     kQuitHotkeyId     = 1;  // Ctrl+Alt+Shift+Q — guaranteed quit hatch (no dock strip to right-click)
@@ -35,6 +44,12 @@ namespace
     // Written on the UI thread in Create/WM_DESTROY; read on the same thread in WinEventProc
     // (OUTOFCONTEXT delivers on our message-pump thread). No cross-thread access.
     HWND s_dockHwnd = nullptr;
+
+    // Same single-instance/UI-thread contract as s_dockHwnd. Lets WinEventProc tell the
+    // foreground-window LOCATIONCHANGE hook apart from the explorer-scoped taskbar hook
+    // (both fire EVENT_OBJECT_LOCATIONCHANGE through the one static callback) and route it
+    // to suppression re-derive instead of a gap re-measure.
+    HWINEVENTHOOK s_fgLocationHook = nullptr;
 
     void StoreWindow(Store& store, HWND hwnd)
     {
@@ -150,6 +165,7 @@ bool HostWindow::Create(HINSTANCE instance)
     m_fanPopup->Create(instance, hwnd, kFanActivateMsg);
 
     m_launcher.Load();  // Stage 5a: automation-button config
+    Paint::SetActiveTheme(m_launcher.ThemeName());  // Stage D: skin from optional config `theme=`
 
     // Stage 5b: host the automation buttons in the taskbar's empty gap. Measure now,
     // then re-measure on a low-frequency timer + on geometry-change events.
@@ -164,6 +180,9 @@ bool HostWindow::Create(HINSTANCE instance)
         // shifts → gap grows/shrinks). Scope to explorer's PID so we only wake on taskbar
         // layout changes, not every window move system-wide.
         HookTaskbarLocation();
+        // Track whatever's foreground now so an app that goes fullscreen in place before any
+        // foreground change (e.g. already-foreground window hitting F11) still suppresses.
+        HookForegroundLocation(GetForegroundWindow());
     }
 
     // Watch the config dir for live edits. Create it first so the watch attaches even
@@ -237,6 +256,28 @@ void HostWindow::HookTaskbarLocation()
             nullptr, WinEventProc, explorerPid, 0, WINEVENT_OUTOFCONTEXT);
 }
 
+// (Re)scope a LOCATIONCHANGE hook to the current foreground window's thread so an in-place
+// fullscreen transition (F11 / video / borderless — no EVENT_SYSTEM_FOREGROUND) still wakes
+// suppression. Thread-scoped keeps it to just that app's windows; idObject==OBJID_WINDOW +
+// the kSuppressTimer debounce filter the residual noise. Idempotent: unhook-then-hook.
+void HostWindow::HookForegroundLocation(HWND fg)
+{
+    if (m_winEventHookFgLocation)
+    {
+        UnhookWinEvent(m_winEventHookFgLocation);
+        m_winEventHookFgLocation = nullptr;
+        s_fgLocationHook = nullptr;
+    }
+    if (!fg) return;
+    DWORD fgPid = 0;
+    const DWORD fgTid = GetWindowThreadProcessId(fg, &fgPid);
+    if (!fgTid) return;
+    m_winEventHookFgLocation = SetWinEventHook(
+        EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE,
+        nullptr, WinEventProc, fgPid, fgTid, WINEVENT_OUTOFCONTEXT);
+    s_fgLocationHook = m_winEventHookFgLocation;
+}
+
 // Coalesce snapshot requests: a burst (Win+M minimizing many windows, or a flood
 // of NAMECHANGE during page loads) collapses into one flush after 150ms of quiet,
 // so the UIA worker doesn't thrash. Foreground pre-warm stays immediate — it must
@@ -308,14 +349,22 @@ LRESULT CALLBACK HostWindow::StaticWndProc(HWND hwnd, UINT msg, WPARAM wparam, L
 }
 
 // static
-void CALLBACK HostWindow::WinEventProc(HWINEVENTHOOK, DWORD event, HWND hwnd,
+void CALLBACK HostWindow::WinEventProc(HWINEVENTHOOK hHook, DWORD event, HWND hwnd,
                                         LONG idObject, LONG, DWORD, DWORD) noexcept
 {
     if (!hwnd || !s_dockHwnd) return;
-    if (event == EVENT_OBJECT_LOCATIONCHANGE)  // taskbar layout moved → re-measure gap
+    if (event == EVENT_OBJECT_LOCATIONCHANGE)
     {
-        // Window + client only (XAML task list resizes as OBJID_CLIENT); skip
-        // cursor/caret/scrollbar noise.
+        // Foreground-window hook: an app resizing itself (→ in-place fullscreen) → re-derive
+        // suppression. Top-level frame only (OBJID_WINDOW) to skip child-control churn.
+        if (hHook == s_fgLocationHook)
+        {
+            if (idObject == OBJID_WINDOW)
+                PostMessageW(s_dockHwnd, kFgLocationMsg, 0, 0);
+            return;
+        }
+        // Taskbar-scoped hook: layout moved → re-measure gap. Window + client only (XAML
+        // task list resizes as OBJID_CLIENT); skip cursor/caret/scrollbar noise.
         if (idObject == OBJID_WINDOW || idObject == OBJID_CLIENT)
             PostMessageW(s_dockHwnd, kRemeasureMsg, 0, 0);
         return;
@@ -376,6 +425,7 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             KillTimer(hwnd, kConfigTimer);
             KillTimer(hwnd, kOverlayTimer);
             KillTimer(hwnd, kSafetyTimer);
+            KillTimer(hwnd, kSuppressTimer);
             PostQuitMessage(0);
         }
         return 0;
@@ -402,6 +452,7 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         {
             if (m_store.Has(target) && m_tabReader)
                 m_tabReader->RequestSnapshot(target);
+            HookForegroundLocation(target);  // track the new fg for in-place fullscreen
             UpdateOverlaySuppression();  // Start/Search flyout or fullscreen app → hide gap pills
             return 0;
         }
@@ -455,13 +506,23 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         {
             KillTimer(hwnd, kConfigTimer);
             m_launcher.Load();
+            Paint::SetActiveTheme(m_launcher.ThemeName());  // live re-skin on config edit
             // Re-measure: the new pill set may change which chips/pills fit the gap.
-            if (m_taskbarOverlay) m_taskbarOverlay->RequestMeasure();
+            if (m_taskbarOverlay)
+            {
+                m_taskbarOverlay->RefreshContent();  // repaint with the new theme even if geometry is unchanged
+                m_taskbarOverlay->RequestMeasure();
+            }
         }
         else if (wparam == kOverlayTimer)
         {
             KillTimer(hwnd, kOverlayTimer);  // one-shot debounce
             if (m_taskbarOverlay) m_taskbarOverlay->RequestMeasure();
+        }
+        else if (wparam == kSuppressTimer)
+        {
+            KillTimer(hwnd, kSuppressTimer);  // one-shot debounce for fg LOCATIONCHANGE bursts
+            UpdateOverlaySuppression();
         }
         else if (wparam == kSafetyTimer)  // periodic; NOT killed here
         {
@@ -470,19 +531,26 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             // the gap would only re-measure on this slow tick. Re-hook once it resolves.
             // Costs a FindTaskbar only while the hook is actually null (normal case: no-op).
             if (!m_winEventHookLocation) HookTaskbarLocation();
-            // Self-heal missed events. Suppressed: re-derive (recovers a missed flyout/
-            // fullscreen release — the only steady-state OpenProcess cost). Not hosting:
-            // re-measure (recovers a stuck-hidden transient). While hosting-and-healthy
-            // do nothing — LOCATIONCHANGE already tracks the gap; a periodic re-measure
-            // would just repaint the overlay every tick for nothing.
-            if (m_overlaySuppressed) UpdateOverlaySuppression();
-            else if (m_taskbarOverlay && !m_taskbarOverlay->Shown()) m_taskbarOverlay->RequestMeasure();
+            // Always re-derive suppression: backstop for a fullscreen app entered in place
+            // whose fg-location event was missed (and for a missed flyout/fullscreen release).
+            // One ProcessBaseName OpenProcess per tick; UpdateOverlaySuppression early-outs
+            // with no repaint when the state is unchanged. If not suppressed and the overlay
+            // is hidden, recover a stuck-hidden transient with a re-measure.
+            UpdateOverlaySuppression();
+            if (!m_overlaySuppressed && m_taskbarOverlay && !m_taskbarOverlay->Shown())
+                m_taskbarOverlay->RequestMeasure();
         }
         return 0;
 
     case kRemeasureMsg:
         // Coalesce a LOCATIONCHANGE burst into one measure after 200ms of quiet.
         SetTimer(hwnd, kOverlayTimer, kOverlayMs, nullptr);
+        return 0;
+
+    case kFgLocationMsg:
+        // Coalesce a foreground-window resize burst (fullscreen animation) into one
+        // suppression re-derive after 120ms of quiet.
+        SetTimer(hwnd, kSuppressTimer, kSuppressMs, nullptr);
         return 0;
 
     case kChipHoverMsg:
@@ -596,12 +664,14 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         KillTimer(hwnd, kConfigTimer);
         KillTimer(hwnd, kOverlayTimer);
         KillTimer(hwnd, kSafetyTimer);
+        KillTimer(hwnd, kSuppressTimer);
         UnregisterHotKey(hwnd, kQuitHotkeyId);
         // Then join every worker before unhooking (a worker post lands on s_dockHwnd).
         m_configWatcher.reset();
         m_tabReader.reset();
         m_fanPopup.reset();
         m_taskbarOverlay.reset();
+        if (m_winEventHookFgLocation) { UnhookWinEvent(m_winEventHookFgLocation); m_winEventHookFgLocation = nullptr; s_fgLocationHook = nullptr; }
         if (m_winEventHookLocation)   { UnhookWinEvent(m_winEventHookLocation);   m_winEventHookLocation   = nullptr; }
         if (m_winEventHookForeground) { UnhookWinEvent(m_winEventHookForeground); m_winEventHookForeground = nullptr; }
         if (m_winEventHookNameChange) { UnhookWinEvent(m_winEventHookNameChange); m_winEventHookNameChange = nullptr; }
