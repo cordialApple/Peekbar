@@ -1,10 +1,13 @@
 #include "Store.h"
+#include <algorithm>
 
 void Store::Set(HWND hwnd, std::wstring title)
 {
+    const bool isNew = m_windows.find(hwnd) == m_windows.end();
     auto& w   = m_windows[hwnd];
     w.hwnd    = hwnd;
     w.title   = std::move(title);
+    if (isNew) m_order.push_back(hwnd);
 }
 
 void Store::SetMinimized(HWND hwnd, bool minimized)
@@ -34,6 +37,7 @@ void Store::MarkTabsStale(HWND hwnd)
 void Store::Remove(HWND hwnd)
 {
     m_windows.erase(hwnd);
+    m_order.erase(std::remove(m_order.begin(), m_order.end(), hwnd), m_order.end());
 }
 
 bool Store::Has(HWND hwnd) const

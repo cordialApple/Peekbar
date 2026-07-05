@@ -26,6 +26,8 @@ namespace
     constexpr UINT    kGapStateMsg      = WM_APP + 6;  // overlay → dock: gap host active?
     constexpr UINT    kFanActivateMsg   = WM_APP + 7;  // fan(UI) → dock: a tab row was clicked
     constexpr UINT    kTabActivateResultMsg = WM_APP + 8;  // TabReader worker → dock: activate outcome
+    // WM_APP + 9 reserved for kChipHoverMsg (Stage 2 fan-from-chips).
+    constexpr UINT    kChipClickMsg     = WM_APP + 10; // overlay → dock: a chip was clicked (restore its window)
     // 5b.3: re-measure the gap on task-list EVENT_OBJECT_LOCATIONCHANGE, debounced
     // through this one-shot (RequestMeasure is already coalesced by the overlay worker).
     constexpr UINT_PTR kOverlayTimer    = 5;
@@ -170,7 +172,7 @@ bool DockWindow::Create(HINSTANCE instance)
     // Stage 5b: host the automation buttons in the taskbar's empty gap. Measure now,
     // then re-measure on a low-frequency timer + on geometry-change events.
     m_taskbarOverlay = std::make_unique<TaskbarOverlayWindow>();
-    if (m_taskbarOverlay->Create(instance, &m_launcher, hwnd, kGapStateMsg))
+    if (m_taskbarOverlay->Create(instance, &m_launcher, &m_store, hwnd, kGapStateMsg, kChipClickMsg))
     {
         m_taskbarOverlay->RequestMeasure();
         SetTimer(hwnd, kOverlayTimer, kOverlayMs, nullptr);  // backstop: guarantees a 2nd verdict if the 1st post is lost
@@ -524,6 +526,7 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
                     RequestSnapshotDebounced(target);
                 AppBarSetPos(hwnd);  // band count changed → re-negotiate reserved height
                 InvalidateRect(hwnd, nullptr, FALSE);
+                if (m_taskbarOverlay) m_taskbarOverlay->RefreshContent();  // chip set changed
             }
             return 0;
         }
@@ -543,6 +546,7 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
                 StoreWindow(m_store, target);
                 RequestSnapshotDebounced(target);
                 InvalidateRect(hwnd, nullptr, FALSE);
+                if (m_taskbarOverlay) m_taskbarOverlay->RefreshContent();  // chip title changed
             }
             return 0;
         }
@@ -578,6 +582,7 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             m_pendingValidation.clear();
             AppBarSetPos(hwnd);  // a removed window may drop a band → re-negotiate
             InvalidateRect(hwnd, nullptr, FALSE);
+            if (m_taskbarOverlay) m_taskbarOverlay->RefreshContent();  // a removed window may drop a chip
         }
         else if (wparam == kSnapshotTimer)
         {
@@ -623,6 +628,11 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         m_gapActive   = (wparam != 0);
         m_gapResolved = true;
         InvalidateRect(hwnd, nullptr, FALSE);
+        return 0;
+
+    case kChipClickMsg:
+        // A taskbar chip was clicked → restore + foreground that window.
+        RestoreWindow(reinterpret_cast<HWND>(wparam));
         return 0;
 
     case WM_POWERBROADCAST:

@@ -20,7 +20,7 @@ namespace
     constexpr UINT     kRetryMs      = 300;  // ~one XAML taskbar animation cycle
 
     // LWA_COLORKEY makes kColorKey fully see-through, so the gap shows through the
-    // overlay everywhere except the pills the buttons paint.
+    // overlay everywhere except the opaque pixels the chips + pills paint.
     constexpr COLORREF kColorKey = RGB(1, 1, 1);
 
     constexpr int kMinGapDip = 40;   // narrower than this → not worth an overlay (→ hide)
@@ -67,11 +67,14 @@ TaskbarOverlayWindow::~TaskbarOverlayWindow()
 }
 
 bool TaskbarOverlayWindow::Create(HINSTANCE instance, const Launcher* launcher,
-                                  HWND dockHwnd, UINT stateMsg)
+                                  const Store* store, HWND dockHwnd, UINT stateMsg,
+                                  UINT chipClickMsg)
 {
-    m_launcher = launcher;
-    m_dockHwnd = dockHwnd;
-    m_stateMsg = stateMsg;
+    m_launcher     = launcher;
+    m_store        = store;
+    m_dockHwnd     = dockHwnd;
+    m_stateMsg     = stateMsg;
+    m_chipClickMsg = chipClickMsg;
 
     WNDCLASSEXW wc = {};
     wc.cbSize        = sizeof(wc);
@@ -128,6 +131,7 @@ void TaskbarOverlayWindow::RequestMeasure()
         if (m_stop) return;
         m_pending = true;
     }
+    m_measurePending = true;   // until the worker posts a fresh gap (kApplyGapMsg)
     m_cv.notify_one();
 }
 
@@ -303,23 +307,23 @@ TaskbarOverlayWindow::Gap TaskbarOverlayWindow::MeasureGap(IUIAutomation* automa
     return { gap, true };
 }
 
-void TaskbarOverlayWindow::ApplyGap(const Gap& g)
+void TaskbarOverlayWindow::ApplyGap(const Gap& g, bool allowHysteresis)
 {
     if (!m_hwnd) return;
+    m_lastGap = g;   // cache for RefreshContent's chip-count re-fit (no re-measure)
 
-    // Size to the gap first (visibility unchanged), then show only if a pill actually
-    // fits — a valid-but-too-narrow gap must not leave a do-nothing topmost window.
+    // Size to the gap first (visibility unchanged), then show only if a chip or pill
+    // actually fits — a valid-but-too-narrow gap must not leave a do-nothing topmost
+    // window.
     bool fits = false;
-    if (g.valid && !m_suppressed)
+    if (g.valid && !m_suppressed && m_store)
     {
         SetWindowPos(m_hwnd, HWND_TOPMOST,
                      g.rc.left, g.rc.top,
                      g.rc.right - g.rc.left, g.rc.bottom - g.rc.top,
                      SWP_NOACTIVATE);
-        RECT client;
-        GetClientRect(m_hwnd, &client);
-        fits = m_launcher && !Renderer::GapButtonLayout(
-                   client, GetDpiForWindow(m_hwnd), m_launcher->Buttons()).empty();
+        const Renderer::GapLayout layout = ComputeGapLayout();
+        fits = !layout.chips.empty() || !layout.buttons.empty();
     }
 
     if (fits)
@@ -337,7 +341,7 @@ void TaskbarOverlayWindow::ApplyGap(const Gap& g)
     // rects → a spurious invalid; don't yank a healthy overlay on the first one. Retry
     // once ~one animation cycle later and hide only if it's still gone. Suppression
     // (flyout/fullscreen) is a genuine hide — skip hysteresis, drop immediately.
-    if (m_shown && !m_suppressed && m_invalidStreak == 0)
+    if (allowHysteresis && m_shown && !m_suppressed && m_invalidStreak == 0)
     {
         m_invalidStreak = 1;
         SetTimer(m_hwnd, kRetryTimer, kRetryMs, nullptr);
@@ -376,15 +380,44 @@ void TaskbarOverlayWindow::SetSuppressed(bool suppressed)
     // settles — an immediate re-measure would just catch zero rects again.
 }
 
-int TaskbarOverlayWindow::ButtonAt(POINT ptClient) const
+// UI thread: re-fit against the last measured gap (chip count may flip shown/hidden)
+// and repaint. No UIA re-measure — the gap geometry hasn't changed, only our content.
+// Skip while a RequestMeasure is in-flight: m_lastGap is stale then, and the imminent
+// kApplyGapMsg re-lays-out from live Store content anyway (avoids a wrong-region blip).
+void TaskbarOverlayWindow::RefreshContent()
 {
-    if (!m_launcher) return -1;
+    if (m_hwnd && !m_measurePending) ApplyGap(m_lastGap, /*allowHysteresis=*/false);
+}
+
+const std::vector<Button>& TaskbarOverlayWindow::Buttons() const
+{
+    static const std::vector<Button> kNoButtons;
+    return m_launcher ? m_launcher->Buttons() : kNoButtons;
+}
+
+Renderer::GapLayout TaskbarOverlayWindow::ComputeGapLayout() const
+{
     RECT rc;
     GetClientRect(m_hwnd, &rc);
-    for (const Renderer::ButtonHit& h :
-         Renderer::GapButtonLayout(rc, GetDpiForWindow(m_hwnd), m_launcher->Buttons()))
+    return Renderer::GapChipLayout(rc, GetDpiForWindow(m_hwnd), *m_store, Buttons());
+}
+
+int TaskbarOverlayWindow::ButtonAt(POINT ptClient) const
+{
+    if (!m_store) return -1;
+    const Renderer::GapLayout layout = ComputeGapLayout();
+    for (const Renderer::ButtonHit& h : layout.buttons)
         if (PtInRect(&h.rect, ptClient)) return h.index;
     return -1;
+}
+
+HWND TaskbarOverlayWindow::ChipAt(POINT ptClient) const
+{
+    if (!m_store) return nullptr;
+    const Renderer::GapLayout layout = ComputeGapLayout();
+    for (const Renderer::ChipHit& c : layout.chips)
+        if (PtInRect(&c.rect, ptClient)) return c.hwnd;
+    return nullptr;
 }
 
 // static
@@ -409,6 +442,7 @@ LRESULT CALLBACK TaskbarOverlayWindow::StaticWndProc(HWND hwnd, UINT msg, WPARAM
         case kApplyGapMsg:
         {
             auto* payload = reinterpret_cast<Gap*>(lparam);
+            self->m_measurePending = false;   // fresh measurement arrived
             if (payload) { self->ApplyGap(*payload); delete payload; }
             return 0;
         }
@@ -424,14 +458,23 @@ LRESULT CALLBACK TaskbarOverlayWindow::StaticWndProc(HWND hwnd, UINT msg, WPARAM
         }
         case WM_NCHITTEST:
         {
-            // Only the pills are ours; everywhere else falls through to the taskbar.
+            // Only chips + pills are ours; everywhere else falls through to the taskbar.
+            // NCHITTEST lParam is in SCREEN coords — convert before hit-testing.
             POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
             ScreenToClient(hwnd, &pt);
-            return self->ButtonAt(pt) >= 0 ? HTCLIENT : HTTRANSPARENT;
+            return (self->ChipAt(pt) || self->ButtonAt(pt) >= 0) ? HTCLIENT : HTTRANSPARENT;
         }
         case WM_LBUTTONUP:
         {
+            // WM_LBUTTONUP lParam is already CLIENT coords.
             const POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
+            if (HWND chip = self->ChipAt(pt))
+            {
+                if (self->m_dockHwnd && self->m_chipClickMsg)
+                    PostMessageW(self->m_dockHwnd, self->m_chipClickMsg,
+                                 reinterpret_cast<WPARAM>(chip), 0);
+                return 0;
+            }
             const int i = self->ButtonAt(pt);
             if (i >= 0 && self->m_launcher)
                 self->m_launcher->Execute(self->m_launcher->Buttons()[i]);
@@ -456,11 +499,20 @@ void TaskbarOverlayWindow::Paint(HDC hdc)
     FillRect(hdc, &rc, key);          // gap shows through (transparent via LWA_COLORKEY)
     DeleteObject(key);
 
-    if (!m_launcher) return;
+    if (!m_store) return;
 
     const UINT rawDpi = GetDpiForWindow(m_hwnd);
     const int dpi = rawDpi ? static_cast<int>(rawDpi) : 96;
-    const auto& buttons = m_launcher->Buttons();
-    for (const Renderer::ButtonHit& h : Renderer::GapButtonLayout(rc, rawDpi, buttons))
+    const std::vector<Button>& buttons = Buttons();
+    const Renderer::GapLayout layout = Renderer::GapChipLayout(rc, rawDpi, *m_store, buttons);
+
+    const auto& all = m_store->All();
+    for (const Renderer::ChipHit& c : layout.chips)
+    {
+        auto it = all.find(c.hwnd);
+        if (it != all.end())
+            Renderer::DrawChip(hdc, c.rect, it->second.title, dpi);
+    }
+    for (const Renderer::ButtonHit& h : layout.buttons)
         Renderer::DrawButton(hdc, h.rect, buttons[h.index], dpi);
 }

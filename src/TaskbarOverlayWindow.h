@@ -4,6 +4,8 @@
 #include <mutex>
 #include <condition_variable>
 #include "Launcher.h"
+#include "Store.h"
+#include "Renderer.h"
 
 // Stage 5b. ALL taskbar-geometry heuristics live in this one file (CLAUDE.md
 // hard rule 6): a Windows update that reshuffles the taskbar is a one-file fix.
@@ -29,12 +31,22 @@ public:
     // dockHwnd/stateMsg: the overlay posts stateMsg (wparam = 1 active / 0 inactive)
     // whenever it starts/stops hosting the buttons, so the dock can hide/show its
     // own fallback strip (5b.3).
-    bool Create(HINSTANCE instance, const Launcher* launcher, HWND dockHwnd, UINT stateMsg);
+    // store: read-only, UI-thread only (like m_launcher) — the measurement worker never
+    // touches it. chipClickMsg: posted to dockHwnd (wparam = window HWND) on a chip click.
+    bool Create(HINSTANCE instance, const Launcher* launcher, const Store* store,
+                HWND dockHwnd, UINT stateMsg, UINT chipClickMsg);
     void Destroy();
 
     // Ask the worker to re-measure (non-blocking). Safe to call from a timer or
     // ABN_POSCHANGED / WM_DISPLAYCHANGE / WM_DPICHANGED on the UI thread.
     void RequestMeasure();
+
+    // UI thread: chip content (Store) changed. Re-evaluate fit against the last measured
+    // gap (chip count can flip shown/hidden without any taskbar geometry change) and
+    // repaint — no UIA re-measure.
+    void RefreshContent();
+
+    bool Shown() const { return m_shown; }
 
     // UI thread. Force-hide the overlay regardless of the measured gap (Start/Search
     // flyout open, or a fullscreen app on the taskbar's monitor). While suppressed the
@@ -48,9 +60,16 @@ private:
 
     static LRESULT CALLBACK StaticWndProc(HWND, UINT, WPARAM, LPARAM);
     void Paint(HDC hdc);
-    void ApplyGap(const Gap& g);   // UI thread: position/show/hide the overlay
+    // UI thread: position/show/hide the overlay. allowHysteresis=false (content-only
+    // refresh on a known-valid gap) hides immediately instead of the mid-animation
+    // 300ms retry, which exists only for UIA zero-rects during a taskbar animation.
+    void ApplyGap(const Gap& g, bool allowHysteresis = true);
     void PostState();              // UI thread: tell the dock our host state (deduped)
     int  ButtonAt(POINT ptClient) const;   // UI thread: pill hit-test, or -1
+    HWND ChipAt(POINT ptClient) const;     // UI thread: chip hit-test, or nullptr
+
+    const std::vector<Button>& Buttons() const;   // launcher's buttons, or empty
+    Renderer::GapLayout ComputeGapLayout() const; // requires m_store
 
     void WorkerLoop();             // worker thread: owns IUIAutomation
     Gap  MeasureGap(struct IUIAutomation* automation) const;
@@ -60,8 +79,11 @@ private:
     HWND            m_hwnd     = nullptr;
     bool            m_shown    = false;
     const Launcher* m_launcher = nullptr;
-    HWND            m_dockHwnd   = nullptr;
-    UINT            m_stateMsg   = 0;
+    const Store*    m_store    = nullptr;    // UI-thread read only; worker never touches it
+    HWND            m_dockHwnd    = nullptr;
+    UINT            m_stateMsg    = 0;
+    UINT            m_chipClickMsg = 0;
+    Gap             m_lastGap     = { {}, false };  // last measured gap, for RefreshContent re-fit
     bool            m_statePosted     = false;
     bool            m_lastPostedShown = false;
     bool            m_suppressed      = false;  // flyout/fullscreen force-hide (UI thread)
@@ -72,4 +94,5 @@ private:
     std::condition_variable m_cv;
     bool                    m_stop    = false;
     bool                    m_pending = false;
+    bool                    m_measurePending = false;  // UI thread: a RequestMeasure is in-flight
 };

@@ -37,7 +37,18 @@ performance over ETW.
 | Profiler (parallel workstream) | 🟡 consumer P.2–P.4 code complete + builds green; P.1 shell emit not done — see `docs/plans/profiler.md` |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
-**Next action: user visual check of Phase 5b, then re-verify Stage 1–4 acceptance (§12) + close Stage 5.**
+**Next action: chip-rework Stage 2 (fan-from-chips). Stage 1 code-complete + checkpoint MAY PROCEED; Windows visual check pending (see below).**
+Active workstream: **taskbar-chip rework** — kill the dock, put minimized-window chips in the taskbar gap
+(plan: `~/.claude/plans/dreamy-stirring-walrus.md`; feasibility: `docs/research/taskbar-chip-feasibility.md`).
+Stage 1 done: chips (minimized windows, title-only, insertion-ordered) render side-by-side in the gap
+overlay next to the automation pills (chips first, pills fill leftover + drop first, 4px edge dead-zone);
+`WM_NCHITTEST` covers chips+pills; clicking a chip restores its window (`kChipClickMsg`→`RestoreWindow`);
+`RefreshContent()` re-fits on chip-set change. Dock still up this stage (you'll see cards AND chips —
+transitional; the dock dies in Stage 3). **Windows visual check pending:** minimize 2-3 browser windows
+→ title chips appear in the gap; click a chip → that window restores; open many apps → gap shrinks, pills
+drop first then newest chips. Debt (F-01/F-02 fixed in-step; none carried from Stage 1).
+
+Prior (Stage 5) next action, now superseded by the rework: user visual check of Phase 5b + re-verify Stage 1–4 (§12).
 Phase 5b is CODE COMPLETE (5b.1 accepted; 5b.2 pills-in-gap; 5b.3 event-driven re-measure + single-host
 dock fallback). **Windows visual check pending** for 5b.3: open many apps → gap shrinks, pills drop, dock
 strip stays empty; close apps → pills grow back in the gap; make the gap fail (too small) → pills reappear
@@ -98,6 +109,17 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-04 — Chip-rework STARTED (kill dock → taskbar chips). Design steered by Fable consult + win32-scout
+  feasibility (both folded into `~/.claude/plans/dreamy-stirring-walrus.md` + `docs/research/taskbar-chip-
+  feasibility.md`). Stage 1 done: Store insertion-order (`Ordered()`); Renderer `GapChipLayout` (chips-first,
+  pills-fill-leftover-drop-first, 4px edge dead-zone, overflow drops tail) + `DrawChip`; TaskbarOverlayWindow
+  takes `const Store*`+`chipClickMsg`, paints chips+pills, `WM_NCHITTEST`/`WM_LBUTTONUP` cover both, chip click
+  posts `kChipClickMsg`→dock `RestoreWindow`, `RefreshContent()` re-fits on chip mutations, caches `m_lastGap`.
+  Dock unchanged this stage (cards+chips both show — transitional). Burst (5 lenses: taskbar-geometry/DPI/
+  threading/teardown/visual) → adjudicator MAY PROCEED (0 blocking). 3 warnings ALL fixed in-step: F-01
+  stale-rect reposition guarded by `m_measurePending`; F-02 content-hide skips 300ms UIA hysteresis
+  (`allowHysteresis=false`); F-03 stale color-key comment. Simplifier folded `Buttons()`+`ComputeGapLayout()`
+  helpers. Build green (both targets). Runtime/visual check pending on Windows. Next: Stage 2 fan-from-chips.
 - 2026-07-04 — Gap-pill (Stage 5b overlay) stability fixes — worked w/ win32-scout advisor. User reported 3
   bugs: (1) YouTube/browser fullscreen didn't hide pills; (2) Start-click → pills stuck hidden; (3) intermittent
   flapping. Advisor root causes: (1) ABN_FULLSCREENAPP only moves the DOCK — overlay is a separate topmost

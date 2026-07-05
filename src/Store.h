@@ -31,6 +31,12 @@ public:
 
     const std::unordered_map<HWND, TrackedWindow>& All() const { return m_windows; }
 
+    // Insertion order of tracked windows. Chips lay out in this order so their taskbar
+    // positions stay stable across paints (unordered_map iteration would shuffle them
+    // under the cursor).
+    const std::vector<HWND>& Ordered() const { return m_order; }
+
 private:
     std::unordered_map<HWND, TrackedWindow> m_windows;
+    std::vector<HWND>                       m_order;
 };
