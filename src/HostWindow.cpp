@@ -29,6 +29,7 @@ namespace
     // dropped ABN_FULLSCREENAPP exit, a transient invalid with no follow-up LOCATIONCHANGE).
     constexpr UINT_PTR kSafetyTimer     = 6;
     constexpr UINT    kSafetyMs         = 1500;
+    constexpr int     kQuitHotkeyId     = 1;  // Ctrl+Alt+Shift+Q — guaranteed quit hatch (no dock strip to right-click)
 
     // Single-instance: safe to keep a plain HWND here for the WinEventProc callback.
     // Written on the UI thread in Create/WM_DESTROY; read on the same thread in WinEventProc
@@ -107,6 +108,10 @@ bool HostWindow::Create(HINSTANCE instance)
     // Explorer broadcasts this to every top-level window when it (re)creates the taskbar
     // (crash-restart, some DPI/theme changes). Our hidden host is top-level → receives it.
     m_taskbarCreatedMsg = RegisterWindowMessageW(L"TaskbarCreated");
+
+    // The dock strip (and its right-click-to-quit) is gone; register a global hatch so the
+    // app is always closable even if the gap overlay is suppressed. Best-effort.
+    RegisterHotKey(hwnd, kQuitHotkeyId, MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 'Q');
 
     for (HWND h : ScanBrowserFrames())
     {
@@ -497,6 +502,10 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         RestoreWindow(reinterpret_cast<HWND>(wparam));
         return 0;
 
+    case WM_HOTKEY:
+        if (wparam == kQuitHotkeyId) DestroyWindow(hwnd);  // → WM_DESTROY teardown
+        return 0;
+
     case WM_POWERBROADCAST:
         // Resume from sleep can leave a stale task-list rect; re-measure after a beat.
         if (wparam == PBT_APMRESUMEAUTOMATIC)
@@ -587,6 +596,7 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         KillTimer(hwnd, kConfigTimer);
         KillTimer(hwnd, kOverlayTimer);
         KillTimer(hwnd, kSafetyTimer);
+        UnregisterHotKey(hwnd, kQuitHotkeyId);
         // Then join every worker before unhooking (a worker post lands on s_dockHwnd).
         m_configWatcher.reset();
         m_tabReader.reset();

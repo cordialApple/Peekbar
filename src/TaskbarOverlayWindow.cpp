@@ -539,6 +539,19 @@ LRESULT CALLBACK TaskbarOverlayWindow::StaticWndProc(HWND hwnd, UINT msg, WPARAM
                 self->m_launcher->Execute(self->m_launcher->Buttons()[i]);
             return 0;
         }
+        case WM_RBUTTONUP:
+        {
+            // Right-click our own content (a chip or pill) quits the app — restores the
+            // dock strip's old right-click-to-close now that the strip is gone. Empty gap
+            // is HTTRANSPARENT, so a right-click there still reaches the taskbar. A plain
+            // PostMessage (not a modal popup menu): a nested TrackPopupMenu loop here would
+            // re-entrantly pump teardown/hide messages — dismissing the menu or freeing this
+            // overlay under its own stack frame.
+            const POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
+            if ((self->ChipAt(pt) || self->ButtonAt(pt) >= 0) && self->m_dockHwnd)
+                PostMessageW(self->m_dockHwnd, WM_CLOSE, 0, 0);
+            return 0;
+        }
         case WM_MOUSEMOVE:
             // Arm whole-overlay leave tracking: when the cursor leaves the window entirely
             // (e.g. up into the fan), WM_MOUSELEAVE clears hover. Chip→gap transitions

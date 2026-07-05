@@ -134,6 +134,16 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-05 — Quit-affordance regression fix. Stage 3 killed the dock strip AND its right-click-to-quit;
+  the hidden host never shows and the gap overlay passes right-clicks to the taskbar → app had NO close path.
+  Restored two: (1) right-click a chip/pill → overlay `WM_RBUTTONUP` `PostMessageW(host, WM_CLOSE)` (empty gap
+  still HTTRANSPARENT → taskbar menu); (2) global hotkey Ctrl+Alt+Shift+Q → host `RegisterHotKey`/`WM_HOTKEY`
+  → `DestroyWindow` (`UnregisterHotKey` in WM_DESTROY). Both hit the existing full teardown→PostQuitMessage.
+  FIRST attempt used a `TrackPopupMenu` "Quit" menu — reentrancy burst found 2 BLOCKERS: F2 real UaF (hotkey
+  during the modal loop tears down the overlay object whose WM_RBUTTONUP frame is running TrackPopupMenu, then
+  derefs freed `self`); F1/F3 worker-reposition/safety-timer hide the menu owner → menu auto-dismissed. Fix:
+  DROPPED the modal menu → direct right-click quit (async PostMessage, no nested pump) — erases all 5 findings.
+  Teardown lens CLEAN both rounds. Build links clean (dock closed). Runtime verify pending on Windows.
 - 2026-07-05 — Overlay persistence + perf hardening (parallel Opus worktree agent, merged clean — 4 files, no
   overlap w/ the purge/fan commits). (1) HIGH: overlay froze forever after an explorer restart — LOCATIONCHANGE
   hook was scoped to explorer's old PID. Fix: `RegisterWindowMessageW(L"TaskbarCreated")` (broadcast to top-level
