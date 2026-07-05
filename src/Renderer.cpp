@@ -238,28 +238,14 @@ namespace Renderer
 
         const int dpiI = dpi ? static_cast<int>(dpi) : 96;
 
-        const auto cards = CardLayout(rc, dpi, store);
-        if (cards.empty())
+        // Empty state (option a): no cards and no placeholder — just the bg fill above
+        // and the fallback buttons below. No AppBar height/register change (paint-only).
+        const auto& all = store.All();
+        for (const CardHit& c : CardLayout(rc, dpi, store))
         {
-            HFONT font    = MakeFont(12, FW_NORMAL, dpiI);
-            HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, font));
-            SetBkMode(hdc, TRANSPARENT);
-            SetTextColor(hdc, kTextOnBg);
-            RECT textRc = rc;
-            DrawTextW(hdc, L"no minimized browsers", -1, &textRc,
-                      DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-            SelectObject(hdc, oldFont);
-            DeleteObject(font);
-        }
-        else
-        {
-            const auto& all = store.All();
-            for (const CardHit& c : cards)
-            {
-                auto it = all.find(c.hwnd);
-                if (it != all.end())
-                    DrawCard(hdc, c.rect, it->second, dpiI);
-            }
+            auto it = all.find(c.hwnd);
+            if (it != all.end())
+                DrawCard(hdc, c.rect, it->second, dpiI);
         }
 
         // Buttons overlay the cards (drawn last), pinned top-right.

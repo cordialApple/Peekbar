@@ -97,6 +97,18 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-04 — Interactive-fan Step 5 done → FEATURE CODE-COMPLETE (all 5 steps). Empty-state option (a):
+  Renderer::Paint dropped the "no minimized browsers" placeholder — empty dock now paints only bg fill +
+  fallback buttons (card loop unconditional, iterates 0×). Paint-only: DockHeightPx still clamps to ≥1 idle
+  band (no AppBar churn, no ABM_*/height change). Burst (paint/DPI/GDI-hygiene + AppBar-no-churn) → adjudicator
+  MAY PROCEED (one AppBar finding was git-HEAD-vs-working-tree confusion, dismissed; substance clean: 0 AppBar
+  calls, exit paths intact, no leaked HFONT). Trivial deletion → simplifier skipped. Build clean.
+  ⇒ CONSOLIDATED VISUAL CHECK PENDING on Win11 for the whole feature (steps 1-5): (1) minimize browser → hover
+  card → fan shows tabs → slide up into fan (must not vanish) → click tab → window restores + that tab
+  activates (~560ms, perceivable lag OK); (2) move off fan → closes ~200ms; hover different card → switches
+  instantly; (3) close all browsers → dock empty, NO placeholder text, fallback buttons still show, dock strip
+  still reserved. Debt still open: [F-02 activate-com-hang] (see Deferred debt). Throwaway spike at
+  scratchpad/spike_activate.{cpp,exe} (SPIKE A/B confirmed) can be deleted.
 - 2026-07-04 — Interactive-fan Step 4 done → fan now REACHABLE (hover-bridge). Was a real bug: dock
   WM_MOUSELEAVE→ClearHover hid the fan instantly, so the cursor crossing the card→fan seam killed it before
   a click (Step 3 unreachable without this). Fix: FanPopup grace timer (kGraceTimer, 200ms) + BeginGrace/
