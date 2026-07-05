@@ -15,12 +15,14 @@ public:
     FanPopup(const FanPopup&) = delete;
     FanPopup& operator=(const FanPopup&) = delete;
 
-    bool Create(HINSTANCE instance);
+    // ownerHwnd receives activateMsg (wparam=targetHwnd, lparam=tab index) on a row click.
+    bool Create(HINSTANCE instance, HWND ownerHwnd, UINT activateMsg);
     void Destroy();
 
+    // targetHwnd = the window whose tabs these are (echoed back on a row click).
     // Anchor: bottom edge sits at stripTopScreen, left aligned to cardLeftScreen,
     // clamped to the card's monitor. Grows upward.
-    void Show(const std::vector<Tab>& tabs,
+    void Show(HWND targetHwnd, const std::vector<Tab>& tabs,
               int cardLeftScreen, int cardRightScreen, int stripTopScreen, UINT dpi);
     void Hide();
 
@@ -30,10 +32,17 @@ public:
 private:
     static LRESULT CALLBACK StaticWndProc(HWND, UINT, WPARAM, LPARAM);
     void Paint(HDC hdc);
+    // Displayed-row hit-test in client coords; shares Paint's geometry. Returns the
+    // index into the ORIGINAL tab vector (== displayed row, tabs shown contiguously
+    // from the front), or -1 for the "+N more" row / outside any clickable row.
+    int  RowAt(POINT ptClient) const;
 
-    HWND              m_hwnd    = nullptr;
-    bool              m_visible = false;
-    UINT              m_dpi     = 96;
+    HWND              m_hwnd        = nullptr;
+    HWND              m_ownerHwnd   = nullptr;
+    UINT              m_activateMsg = 0;
+    HWND              m_targetHwnd  = nullptr;
+    bool              m_visible     = false;
+    UINT              m_dpi         = 96;
     std::vector<Tab>  m_tabs;
     int               m_hiddenCount = 0;
 };

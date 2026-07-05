@@ -141,7 +141,7 @@ bool DockWindow::Create(HINSTANCE instance)
     m_tabReader = std::make_unique<TabReader>(hwnd, kTabSnapshotMsg, kTabActivateResultMsg);
 
     m_fanPopup = std::make_unique<FanPopup>();
-    m_fanPopup->Create(instance);
+    m_fanPopup->Create(instance, hwnd, kFanActivateMsg);
 
     m_launcher.Load();  // Stage 5a: automation-button config
 
@@ -263,7 +263,7 @@ void DockWindow::ShowFanFor(HWND card)
         POINT pr = { c.rect.right, 0 };
         ClientToScreen(m_hwnd, &pl);
         ClientToScreen(m_hwnd, &pr);
-        m_fanPopup->Show(it->second.tabs, pl.x, pr.x, pl.y, dpi);
+        m_fanPopup->Show(card, it->second.tabs, pl.x, pr.x, pl.y, dpi);
         return;
     }
 }

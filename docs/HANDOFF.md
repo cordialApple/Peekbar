@@ -97,6 +97,17 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-04 — Interactive-fan Step 3 done → feature now END-TO-END (hover card → fan → click row → tab
+  activates). FanPopup: Create(+ownerHwnd,+activateMsg), Show(+targetHwnd), RowAt hit-test (shares Paint's
+  ScalePx(6/24) geometry; "+N more" row → -1), WM_LBUTTONDOWN → PostMessageW(kFanActivateMsg, target, idx)
+  when idx>=0; MA_NOACTIVATE kept. Dock passes hwnd+kFanActivateMsg to Create, card hwnd to Show. Displayed
+  row == original Store tab index (tabs shown contiguous from front) so idx indexes Store's full vector
+  directly. Burst (DPI + threading) BOTH CLEAN → adjudicator MAY PROCEED (m_targetHwnd null-guard ruled
+  unnecessary: idx>=0 ⟹ m_tabs non-empty ⟹ Show ran ⟹ target set; dock also re-guards via Store). Simplifier:
+  no churn. Build clean. VISUAL CHECK PENDING on Win11: hover a minimized browser's card → fan shows tabs →
+  click a tab → that window restores & the clicked tab activates. Remaining: Step 4 (hover-bridge grace so
+  the fan survives the card→fan gap; lenses threading/DPI/AppBar-timer) + Step 5 (empty-state paint-only;
+  lenses DPI/AppBar-assert-no-setpos).
 - 2026-07-04 — Interactive-fan Step 2 done + SPIKE A/B CONFIRMED on Win11. Spike run: SetForegroundWindow
   ret=1 no ASFW → tab switched (R1 recipe good; GetForegroundWindow!=target right-after is just async
   restore, harmless since ret=1 skips flash); Select hr=0 confirmed IsSelected=1; tab-tree ready ~330ms

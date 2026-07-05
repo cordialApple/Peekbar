@@ -1,5 +1,6 @@
 #include "FanPopup.h"
 #include "PaintUtil.h"
+#include <windowsx.h>
 
 using namespace Paint;
 
@@ -13,8 +14,11 @@ FanPopup::~FanPopup()
     Destroy();
 }
 
-bool FanPopup::Create(HINSTANCE instance)
+bool FanPopup::Create(HINSTANCE instance, HWND ownerHwnd, UINT activateMsg)
 {
+    m_ownerHwnd   = ownerHwnd;
+    m_activateMsg = activateMsg;
+
     WNDCLASSEXW wc = {};
     wc.cbSize        = sizeof(wc);
     wc.lpfnWndProc   = StaticWndProc;
@@ -47,12 +51,13 @@ void FanPopup::Destroy()
     m_visible = false;
 }
 
-void FanPopup::Show(const std::vector<Tab>& tabs,
+void FanPopup::Show(HWND targetHwnd, const std::vector<Tab>& tabs,
                     int cardLeftScreen, int cardRightScreen, int stripTopScreen, UINT dpi)
 {
     if (!m_hwnd) return;
     if (tabs.empty()) { Hide(); return; }
 
+    m_targetHwnd = targetHwnd;
     const int dpiI = dpi ? static_cast<int>(dpi) : 96;
     m_dpi   = static_cast<UINT>(dpiI);
 
@@ -143,10 +148,38 @@ LRESULT CALLBACK FanPopup::StaticWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPA
             return 0;
         }
         case WM_MOUSEACTIVATE:
-            return MA_NOACTIVATE;
+            return MA_NOACTIVATE;   // MANDATORY: keeps the fan from stealing activation on hover/click (R1)
+        case WM_LBUTTONDOWN:
+        {
+            const POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
+            const int idx = self->RowAt(pt);
+            if (idx >= 0 && self->m_ownerHwnd && self->m_activateMsg)
+                PostMessageW(self->m_ownerHwnd, self->m_activateMsg,
+                             reinterpret_cast<WPARAM>(self->m_targetHwnd),
+                             static_cast<LPARAM>(idx));
+            return 0;
+        }
         }
     }
     return DefWindowProcW(hwnd, msg, wparam, lparam);
+}
+
+int FanPopup::RowAt(POINT ptClient) const
+{
+    if (!m_hwnd) return -1;
+    const int dpiI = static_cast<int>(m_dpi);
+    const int pad  = ScalePx(6, dpiI);
+    const int rowH = ScalePx(24, dpiI);
+
+    RECT rc;
+    GetClientRect(m_hwnd, &rc);
+    if (ptClient.x < rc.left + pad || ptClient.x > rc.right - pad) return -1;
+
+    const int rel = ptClient.y - (rc.top + pad);
+    if (rel < 0) return -1;
+    const int row = rel / rowH;
+    // Only the shown tab rows are clickable; the "+N more" overflow row is not.
+    return (row < static_cast<int>(m_tabs.size())) ? row : -1;
 }
 
 void FanPopup::Paint(HDC hdc)
