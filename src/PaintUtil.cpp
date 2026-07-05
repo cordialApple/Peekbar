@@ -5,8 +5,8 @@ namespace Paint
     namespace
     {
         constexpr Theme kSlate = {
-            RGB(74, 78, 86),  RGB(48, 50, 56),  RGB(96, 100, 108), kTextPrimary,
-            RGB(60, 63, 70),  RGB(40, 42, 48),  kButtonBorder,     kTextPrimary,
+            RGB(80, 84, 92),  RGB(44, 46, 52),  RGB(104, 108, 116), kTextPrimary,
+            RGB(72, 76, 86),  RGB(38, 40, 48),  RGB(96, 100, 110),  kTextPrimary,
             RGB(255, 150, 140), kChipActiveBg,  kTextActive,
             kRowHover,
             true,
@@ -21,8 +21,8 @@ namespace Paint
         };
 
         constexpr Theme kSteel = {
-            RGB(90, 98, 110), RGB(58, 64, 74),  RGB(120, 130, 144), kTextPrimary,
-            RGB(66, 72, 82),  RGB(44, 48, 56),  RGB(104, 112, 124), kTextPrimary,
+            RGB(92, 100, 114), RGB(54, 60, 72),  RGB(124, 134, 150), kTextPrimary,
+            RGB(82, 90, 104),  RGB(46, 52, 64),  RGB(112, 122, 138), kTextPrimary,
             RGB(255, 150, 140), kChipActiveBg,  kTextActive,
             kRowHover,
             true,

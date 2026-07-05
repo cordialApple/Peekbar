@@ -51,6 +51,25 @@ namespace Paint
         GradientFill(hdc, v, 2, &gr, 1, GRADIENT_FILL_RECT_V);
     }
 
+    inline COLORREF Lighten(COLORREF c, int d)
+    {
+        auto up = [d](int v) { v += d; return v > 255 ? 255 : v; };
+        return RGB(up(GetRValue(c)), up(GetGValue(c)), up(GetBValue(c)));
+    }
+
+    // Metallic fill: a bright specular edge at the top fading to the base color over the
+    // upper ~40%, then base → shadow over the rest. Reads as lit brushed metal, not a flat
+    // linear wash. rc must already be clipped to the rounded surface by the caller.
+    inline void FillMetallic(HDC hdc, const RECT& rc, COLORREF base, COLORREF shadow)
+    {
+        const int h = rc.bottom - rc.top;
+        const int mid = rc.top + (h * 2) / 5;
+        RECT hiR = { rc.left, rc.top, rc.right, mid };
+        RECT loR = { rc.left, mid, rc.right, rc.bottom };
+        FillVGradient(hdc, hiR, Lighten(base, 26), base);
+        FillVGradient(hdc, loR, base, shadow);
+    }
+
     inline int ScalePx(int px, int dpi) { return MulDiv(px, dpi, 96); }
 
     inline HFONT MakeFont(int ptSize, int weight, int dpi)

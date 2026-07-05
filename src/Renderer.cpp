@@ -29,7 +29,7 @@ namespace
         DeleteObject(rgn);
         if (gradient)
         {
-            FillVGradient(hdc, rc, top, bottom);
+            FillMetallic(hdc, rc, top, bottom);
         }
         else
         {
