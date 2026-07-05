@@ -63,6 +63,12 @@ public:
     // repaint — no UIA re-measure.
     void RefreshContent();
 
+    // UI thread, periodic self-heal (host safety timer). Reconcile visibility against the
+    // last measured gap REGARDLESS of any in-flight measure: hides a stuck shown-but-empty
+    // overlay and re-asserts HWND_TOPMOST on a healthy one (a taskbar re-layout can z-occlude
+    // it behind the taskbar). No UIA re-measure — geometry is whatever was last measured.
+    void ReassertVisibility();
+
     bool Shown() const { return m_shown; }
 
     // UI thread. Force-hide the overlay regardless of the measured gap (Start/Search

@@ -37,9 +37,11 @@ performance over ETW.
 | Profiler (parallel workstream) | 🟡 consumer P.2–P.4 code complete + builds green; P.1 shell emit not done — see `docs/plans/profiler.md` |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
-**TOP PRIORITY next session: fix overlay instability (see session-log 2026-07-05 OPEN BUG) — AV crash +
-stuck-empty overlay on terminal-churn. Likely fix: drop the per-foreground LOCATIONCHANGE hook, poll fullscreen
-via the safety timer; harden the measure re-fit + re-assert HWND_TOPMOST.**
+**TOP PRIORITY next session: RUNTIME-VERIFY the overlay-instability fix on Windows (code done 2026-07-05, see
+session log). Repro that previously broke it: rapidly open/close a terminal (taskbar churn) with a browser
+minimized → confirm NO AV crash and NO stuck visible-but-empty overlay. Also re-check in-place fullscreen (F11/
+video) still hides pills+chips (now ~1.5s latency via the safety-timer poll, no longer instant). If clean, close
+the bug in the memory file project_overlay_instability_bug.**
 
 **Next action: chip-rework Stage 4 CODE-COMPLETE — dead-code purge + `DockWindow`→`HostWindow` rename (aa84dc1) + overlay persistence/perf hardening (a3d8cbc) + fan polish B/C (bd645fd) all committed. Remaining tiny doc polish: reword CLAUDE.md rule 4 (AppBar hygiene → "no AppBar registered; ABM_GETSTATE query-only") + ARCHITECTURE "dock strip" mentions (deferred, low-pri; rule 4 still valid vacuously). DONE since: quit-affordance fix, D (themes+gradient), fullscreen-in-place suppression fix. NEXT FEATURE: A =
 pill icon-fallback, icons extracted from each button's target exe (shrink pill→~28px icon square before dropping
@@ -143,6 +145,23 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-05 — **Overlay-instability FIX applied (was the OPEN top-priority bug below); runtime-verify pending
+  on Windows.** Root-cause direction confirmed: killed the per-foreground-window EVENT_OBJECT_LOCATIONCHANGE hook
+  (`HookForegroundLocation`/`m_winEventHookFgLocation`/`s_fgLocationHook`/`kFgLocationMsg`/`kSuppressTimer`/
+  `kSuppressMs`) — it re-scoped on EVERY foreground change and hammered a race path under rapid churn. In-place
+  fullscreen (F11/video/borderless, no EVENT_SYSTEM_FOREGROUND) is now detected by the existing 1.5s `kSafetyTimer`
+  poll only (`UpdateOverlaySuppression`), plus the immediate EVENT_SYSTEM_FOREGROUND path for the common cases —
+  far fewer events (matches user's "stop listening to so many non-browser events"). Trade: fullscreen suppression
+  latency ~0→1.5s (acceptable). Hardened the stuck visible-but-empty state: new
+  `TaskbarOverlayWindow::ReassertVisibility()` = `ApplyGap(m_lastGap, /*hysteresis*/false)` called each safety tick
+  — hides a shown-but-empty overlay (from a lost `kApplyGapMsg`) and re-asserts `HWND_TOPMOST` against a taskbar
+  re-layout that z-occluded it; the `!Shown()`→RequestMeasure recovery for stuck-hidden stays. Kept the debounced
+  taskbar-LOCATIONCHANGE gap re-fit (explorer-PID hook) — user still wants re-fit when a terminal opens.
+  WinEventProc's LOCATIONCHANGE branch is now taskbar-only. Both targets compile+link clean (had to regen VS2022
+  cache — stale VS2019). Inspector burst (threading + teardown/exit-path) → BOTH no findings → adjudicator
+  CHECKPOINT MAY PROCEED (informational: ReassertVisibility doesn't gate on m_measurePending — intentional, that's
+  the self-heal for a lost measure; cosmetic 1-frame stale at worst on the slow tick). Simplifier skipped
+  (deletion-heavy vetted threading change). RUNTIME/visual verify pending on Windows (see TOP PRIORITY above).
 - 2026-07-05 — **OPEN BUG (top priority next session): overlay instability on first real run.** The chip-rework
   build finally ran (link was blocked all prior sessions by the live dock). Two failure modes when the user
   rapidly opens/closes a terminal (taskbar churn) with a browser minimized: (1) AV `0xC0000005` — process dies

@@ -413,6 +413,11 @@ void TaskbarOverlayWindow::RefreshContent()
     if (m_hwnd && !m_measurePending) ApplyGap(m_lastGap, /*allowHysteresis=*/false);
 }
 
+void TaskbarOverlayWindow::ReassertVisibility()
+{
+    if (m_hwnd) ApplyGap(m_lastGap, /*allowHysteresis=*/false);
+}
+
 const std::vector<Button>& TaskbarOverlayWindow::Buttons() const
 {
     static const std::vector<Button> kNoButtons;
