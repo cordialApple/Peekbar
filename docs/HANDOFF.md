@@ -51,6 +51,11 @@ radius-vs-diameter (cosmetic). Also still pending 5a check: dock grows on minimi
 (%LOCALAPPDATA%\browser_shell_os\config.txt). Profiler workstream still unstarted (see profiler.md).
 
 Deferred debt:
+- [F-02 activate-com-hang] TabReader::ActivateTab drives cross-process COM (Select/DoDefaultAction)
+  into the browser provider from the MTA worker; a hung provider can block the worker unbounded →
+  ~TabReader join → AppBarRemove stalls. Pre-existing parity w/ SnapshotTabs, but activate drives
+  provider-side ACTIONS (bigger surface). m_stop fix bounds the sleeps, NOT a hung COM call. Follow-up:
+  bounded-wait/watchdog (CoWaitForMultipleHandles-style). Isolated in TabReader (rule 6 OK).
 - [renderer-tiny-card] Very narrow cards (rowW < ~48px, i.e. many minimized windows) drop the
   "+N" overflow indicator silently. Degenerate many-window case; revisit if window count grows.
 - [tabreader-locale] CleanTabTitle strips English suffixes only (" - Sleeping", " - Pinned",
@@ -92,6 +97,21 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-04 — Interactive-fan FEATURE Step 1 done (TabReader Activate path). Built combined throwaway
+  SPIKE (scratchpad/spike_activate.exe, VS2026 vcvars) reproducing the full flow (NOACTIVATE fan click →
+  UI SetForegroundWindow [SPIKE A] → worker UIA re-walk w/ readiness+tree retry → Select → confirm [SPIKE
+  B]) — ready to run, PENDING USER on a live browser to confirm R1 recipe + set 2.3 constants. Step 1 real
+  code: TabReader.h ActivateOutcome/TabActivateResult/Request(ReqKind Snapshot|Activate), ctor +activateMsg;
+  TabReader.cpp CancelableSleep + FindLiveTabItems (keeps live element array, index-parity w/ Tab vec) +
+  IsItemSelected + ActivateTab (readiness gate → tree gate → title-first match w/ fallbackIndex tiebreak →
+  Select → confirm-via-reread → SetFocus→LegacyIAccessible fallback, NOT Invoke); WorkerLoop Snapshot/Activate
+  dispatch; RequestActivate (no de-dupe). DockWindow: kTabActivateResultMsg=WM_APP+8 handler (_DEBUG log +
+  UI-thread Store refresh from freshTabs + delete). Burst (threading + COM/resource) → adjudicator BLOCKED
+  F-01 (poll sleeps ignored m_stop → join could freeze UI ~6s) → fixed (CancelableSleep threads m_stop into
+  every sleep) → re-burst threading CLEAN → MAY PROCEED. F-02 (unbounded COM into hung provider) tracked as
+  debt. Simplifier: reused IsItemSelected, markSelected lambda, dropped matchCount. Build clean (shell+profiler).
+  Next: user runs spike + reports numbers; then Step 2 (dock kFanActivateMsg + restore-first) — kFanActivateMsg
+  reserved WM_APP+7. kFanActivateMsg NOT yet added (step 2).
 - 2026-07-04 — Feature DESIGN (parallel thread): `docs/plans/feature-interactive-fan.md` — interactive fan
   (click a fan row → restore+foreground→worker re-snapshot→title-match→SelectionItemPattern.Select) +
   empty-state "no cards, keep fallback buttons" (option a, no AppBar churn). Fable steered (UIA Select not

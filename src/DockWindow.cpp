@@ -24,6 +24,7 @@ namespace
     constexpr UINT    kConfigMs         = 300;
     constexpr UINT    kRemeasureMsg     = WM_APP + 5;  // LOCATIONCHANGE hook → debounce
     constexpr UINT    kGapStateMsg      = WM_APP + 6;  // overlay → dock: gap host active?
+    constexpr UINT    kTabActivateResultMsg = WM_APP + 8;  // TabReader worker → dock: activate outcome
     // 5b.3: re-measure the gap on task-list EVENT_OBJECT_LOCATIONCHANGE, debounced
     // through this one-shot (RequestMeasure is already coalesced by the overlay worker).
     constexpr UINT_PTR kOverlayTimer    = 5;
@@ -136,7 +137,7 @@ bool DockWindow::Create(HINSTANCE instance)
         0, 0,
         WINEVENT_OUTOFCONTEXT);
 
-    m_tabReader = std::make_unique<TabReader>(hwnd, kTabSnapshotMsg);
+    m_tabReader = std::make_unique<TabReader>(hwnd, kTabSnapshotMsg, kTabActivateResultMsg);
 
     m_fanPopup = std::make_unique<FanPopup>();
     m_fanPopup->Create(instance);
@@ -572,6 +573,31 @@ LRESULT DockWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
                 m_store.SetTabs(payload->hwnd, std::move(payload->tabs));
             delete payload;
             InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        return 0;
+    }
+
+    case kTabActivateResultMsg:
+    {
+        auto* payload = reinterpret_cast<TabActivateResult*>(lparam);
+        if (payload)
+        {
+#ifdef _DEBUG
+            wchar_t dbg[256];
+            swprintf_s(dbg, L"[Activate] hwnd=%p outcome=%d matchedIndex=%d freshTabs=%d\n",
+                       reinterpret_cast<void*>(payload->hwnd),
+                       static_cast<int>(payload->outcome),
+                       payload->matchedIndex,
+                       static_cast<int>(payload->freshTabs.size()));
+            OutputDebugStringW(dbg);
+#endif
+            // Refresh the card/fan from the same re-snapshot the worker just took.
+            if (!payload->freshTabs.empty() && m_store.Has(payload->hwnd))
+            {
+                m_store.SetTabs(payload->hwnd, std::move(payload->freshTabs));
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            delete payload;
         }
         return 0;
     }
