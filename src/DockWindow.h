@@ -1,7 +1,6 @@
 #pragma once
 
 #include <windows.h>
-#include <shellapi.h>
 #include <vector>
 #include <memory>
 #include "Store.h"
@@ -11,7 +10,10 @@
 #include "ConfigWatcher.h"
 #include "TaskbarOverlayWindow.h"
 
-// Dock window. UI thread only owns this (CLAUDE.md rule 5).
+// Hidden coordinator window. Owns the message loop, WinEvent hooks, Store (sole
+// writer), TabReader, ConfigWatcher, Launcher, FanPopup, and the taskbar overlay.
+// Never shown — chips live in the overlay; there is no dock strip and no AppBar.
+// UI thread only owns this (CLAUDE.md rule 5).
 class DockWindow
 {
 public:
@@ -31,17 +33,8 @@ private:
     static void CALLBACK WinEventProc(HWINEVENTHOOK, DWORD event, HWND hwnd,
                                       LONG idObject, LONG, DWORD, DWORD) noexcept;
 
-    void AppBarRemove(HWND hwnd);
-    void AppBarSetPos(HWND hwnd);
-    int  DockHeightPx(UINT dpi) const;
-    void ShowFanFor(HWND card);
     void ShowFanForChip(HWND chip);
-    HWND CardAt(POINT ptClient) const;
-    int  ButtonAt(POINT ptClient) const;
-    const std::vector<Button>& DockButtons() const;  // launcher buttons, or none while gap hosts them
     void RestoreWindow(HWND target);
-    void ClearHover();
-    void BeginHoverGrace();
     void RequestSnapshotDebounced(HWND hwnd);
     // Hide the gap overlay while a Start/Search flyout is open or a fullscreen app owns
     // the taskbar's monitor; re-measure once it clears. All heuristics isolated here +
@@ -50,9 +43,6 @@ private:
     bool FullscreenOnDockMonitor(HWND fg) const;
 
     HWND              m_hwnd             = nullptr;
-    APPBARDATA        m_abd              = {};
-    bool              m_appBarRegistered = false;
-    int               m_dockHeight       = 0;
     Store             m_store;
     std::vector<HWND> m_pendingValidation;
     std::vector<HWND> m_pendingSnapshots;
@@ -61,8 +51,6 @@ private:
     HWINEVENTHOOK     m_winEventHookNameChange = nullptr;
     HWINEVENTHOOK     m_winEventHookForeground = nullptr;
     HWINEVENTHOOK     m_winEventHookLocation   = nullptr;
-    bool              m_gapActive              = false;
-    bool              m_gapResolved            = false;  // first overlay verdict seen? (avoids startup double-show)
     bool              m_overlaySuppressed      = false;  // current overlay suppression (dedupes)
     std::unique_ptr<TabReader>     m_tabReader;
     std::unique_ptr<FanPopup>      m_fanPopup;
@@ -71,6 +59,4 @@ private:
     // Declared after m_launcher: the overlay holds a Launcher* and its worker is
     // joined in ~TaskbarOverlayWindow, so it must destruct BEFORE m_launcher.
     std::unique_ptr<TaskbarOverlayWindow> m_taskbarOverlay;
-    HWND                       m_hoverCard    = nullptr;
-    bool                       m_mouseTracking = false;
 };

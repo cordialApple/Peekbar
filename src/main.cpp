@@ -1,6 +1,4 @@
 #include <windows.h>
-#include <shellapi.h>
-#include <atomic>
 
 #include "DockWindow.h"
 #include "WindowMonitor.h"
@@ -8,25 +6,6 @@
 namespace
 {
     constexpr wchar_t kMutexName[] = L"BrowserShellOs_SingleInstance";
-
-    // Crash filter: best-effort ABM_REMOVE before the default handler takes over.
-    // Hard kill (Task Manager, kernel crash) still leaks the strip until Explorer
-    // restarts — documented expected behavior. Atomic so the faulting thread sees
-    // the current value without a data race (F-01 fix).
-    std::atomic<HWND> g_dockHwnd = nullptr;
-
-    LONG CALLBACK CrashFilter(EXCEPTION_POINTERS*)
-    {
-        HWND hwnd = g_dockHwnd.exchange(nullptr);
-        if (hwnd)
-        {
-            APPBARDATA abd = {};
-            abd.cbSize = sizeof(abd);
-            abd.hWnd   = hwnd;
-            SHAppBarMessage(ABM_REMOVE, &abd);
-        }
-        return EXCEPTION_CONTINUE_SEARCH;
-    }
 }
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR lpCmdLine, int)
@@ -50,7 +29,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR lpCmdLine, int)
     }
 #endif
 
-    // Single instance: second launch exits immediately; two appbars = geometry chaos.
+    // Single instance: second launch exits immediately; two overlays would fight over
+    // the same taskbar gap and paint duplicate chips.
     const HANDLE mutex = CreateMutexW(nullptr, FALSE, kMutexName);
     if (!mutex || GetLastError() == ERROR_ALREADY_EXISTS)
     {
@@ -72,9 +52,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR lpCmdLine, int)
         return 1;
     }
 
-    g_dockHwnd = dock.Hwnd();
-    SetUnhandledExceptionFilter(CrashFilter);
-
     MSG msg;
     BOOL result;
     while ((result = GetMessageW(&msg, nullptr, 0, 0)) != 0)
@@ -88,7 +65,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR lpCmdLine, int)
         DispatchMessageW(&msg);
     }
 
-    g_dockHwnd = nullptr; // WM_DESTROY already deregistered; tighten exchange intent
     CloseHandle(mutex);
     return static_cast<int>(msg.wParam);
 }

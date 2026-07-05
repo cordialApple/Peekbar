@@ -28,23 +28,25 @@ public:
     TaskbarOverlayWindow(const TaskbarOverlayWindow&) = delete;
     TaskbarOverlayWindow& operator=(const TaskbarOverlayWindow&) = delete;
 
-    // dockHwnd/stateMsg: the overlay posts stateMsg (wparam = 1 active / 0 inactive)
-    // whenever it starts/stops hosting the buttons, so the dock can hide/show its
-    // own fallback strip (5b.3).
     // store: read-only, UI-thread only (like m_launcher) — the measurement worker never
     // touches it. chipClickMsg: posted to dockHwnd (wparam = window HWND) on a chip click.
     // chipHoverMsg: posted to dockHwnd (wparam = hovered window HWND, or 0 on leave) as the
-    // hovered chip changes — the dock opens/graces the fan.
+    // hovered chip changes — the host opens/graces the fan.
     bool Create(HINSTANCE instance, const Launcher* launcher, const Store* store,
-                HWND dockHwnd, UINT stateMsg, UINT chipClickMsg, UINT chipHoverMsg);
+                HWND dockHwnd, UINT chipClickMsg, UINT chipHoverMsg);
     void Destroy();
 
     // UI thread: screen rect of the chip for `hwnd` in the current layout, or false if it
-    // isn't currently shown as a chip. The dock anchors the fan above it.
+    // isn't currently shown as a chip. The host anchors the fan above it.
     bool ChipRectScreen(HWND hwnd, RECT* out) const;
 
-    // Ask the worker to re-measure (non-blocking). Safe to call from a timer or
-    // ABN_POSCHANGED / WM_DISPLAYCHANGE / WM_DPICHANGED on the UI thread.
+    // UI thread: the monitor the taskbar (and thus this overlay) lives on, or nullptr.
+    // The hidden host is 1x1 at origin, so it can't source this itself (rule 6: taskbar
+    // geometry stays here).
+    HMONITOR TaskbarMonitor() const;
+
+    // Ask the worker to re-measure (non-blocking). Safe to call from a timer or a
+    // WM_DISPLAYCHANGE / WM_DPICHANGED / LOCATIONCHANGE handler on the UI thread.
     void RequestMeasure();
 
     // UI thread: chip content (Store) changed. Re-evaluate fit against the last measured
@@ -70,7 +72,6 @@ private:
     // refresh on a known-valid gap) hides immediately instead of the mid-animation
     // 300ms retry, which exists only for UIA zero-rects during a taskbar animation.
     void ApplyGap(const Gap& g, bool allowHysteresis = true);
-    void PostState();              // UI thread: tell the dock our host state (deduped)
     int  ButtonAt(POINT ptClient) const;   // UI thread: pill hit-test, or -1
     HWND ChipAt(POINT ptClient) const;     // UI thread: chip hit-test, or nullptr
     void UpdateHover(HWND chip);           // UI thread: post chipHoverMsg on hover change
@@ -88,14 +89,11 @@ private:
     const Launcher* m_launcher = nullptr;
     const Store*    m_store    = nullptr;    // UI-thread read only; worker never touches it
     HWND            m_dockHwnd    = nullptr;
-    UINT            m_stateMsg    = 0;
     UINT            m_chipClickMsg = 0;
     UINT            m_chipHoverMsg = 0;
     HWND            m_hoverChip   = nullptr;   // last chip we posted hover for (dedupe)
     bool            m_mouseTracking = false;   // TME_LEAVE armed (whole-overlay leave)
     Gap             m_lastGap     = { {}, false };  // last measured gap, for RefreshContent re-fit
-    bool            m_statePosted     = false;
-    bool            m_lastPostedShown = false;
     bool            m_suppressed      = false;  // flyout/fullscreen force-hide (UI thread)
     int             m_invalidStreak   = 0;      // consecutive bad measures (hysteresis, UI thread)
 

@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#pragma comment(lib, "shell32.lib")   // SHAppBarMessage (ABM_GETSTATE only — query, no register)
+
 using namespace Paint;
 using Microsoft::WRL::ComPtr;
 
@@ -81,13 +83,12 @@ TaskbarOverlayWindow::~TaskbarOverlayWindow()
 }
 
 bool TaskbarOverlayWindow::Create(HINSTANCE instance, const Launcher* launcher,
-                                  const Store* store, HWND dockHwnd, UINT stateMsg,
+                                  const Store* store, HWND dockHwnd,
                                   UINT chipClickMsg, UINT chipHoverMsg)
 {
     m_launcher     = launcher;
     m_store        = store;
     m_dockHwnd     = dockHwnd;
-    m_stateMsg     = stateMsg;
     m_chipClickMsg = chipClickMsg;
     m_chipHoverMsg = chipHoverMsg;
 
@@ -348,7 +349,6 @@ void TaskbarOverlayWindow::ApplyGap(const Gap& g, bool allowHysteresis)
         if (!m_shown) { ShowWindow(m_hwnd, SW_SHOWNOACTIVATE); m_shown = true; }
         InvalidateRect(m_hwnd, nullptr, TRUE);
         UpdateWindow(m_hwnd);
-        PostState();
         return;
     }
 
@@ -365,19 +365,14 @@ void TaskbarOverlayWindow::ApplyGap(const Gap& g, bool allowHysteresis)
     m_invalidStreak = 0;
     KillTimer(m_hwnd, kRetryTimer);
     if (m_shown) { ShowWindow(m_hwnd, SW_HIDE); m_shown = false; }
-    PostState();
 }
 
-// Tell the dock on the first verdict too (not just flips), so it knows whether to show
-// its fallback strip instead of waiting — and never double-shows at startup.
-void TaskbarOverlayWindow::PostState()
+// UI thread: the monitor the taskbar (and this overlay) live on. Rule 6: taskbar
+// geometry stays isolated here.
+HMONITOR TaskbarOverlayWindow::TaskbarMonitor() const
 {
-    if (m_dockHwnd && (m_shown != m_lastPostedShown || !m_statePosted))
-    {
-        m_statePosted     = true;
-        m_lastPostedShown = m_shown;
-        PostMessageW(m_dockHwnd, m_stateMsg, m_shown ? 1 : 0, 0);
-    }
+    HWND tray = FindTaskbar();
+    return tray ? MonitorFromWindow(tray, MONITOR_DEFAULTTONEAREST) : nullptr;
 }
 
 void TaskbarOverlayWindow::SetSuppressed(bool suppressed)
@@ -389,7 +384,7 @@ void TaskbarOverlayWindow::SetSuppressed(bool suppressed)
     {
         m_invalidStreak = 0;
         KillTimer(m_hwnd, kRetryTimer);
-        if (m_shown) { ShowWindow(m_hwnd, SW_HIDE); m_shown = false; PostState(); }
+        if (m_shown) { ShowWindow(m_hwnd, SW_HIDE); m_shown = false; }
     }
     // Un-suppress: the dock schedules a re-measure once the flyout/fullscreen animation
     // settles — an immediate re-measure would just catch zero rects again.

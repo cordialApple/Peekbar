@@ -376,8 +376,8 @@ TabReader::~TabReader()
     // m_stop only bounds the sleeps; it cannot interrupt an in-flight cross-process
     // UIA/COM call into a wedged browser provider — ActivateTab's Select/SetFocus/
     // DoDefaultAction OR SnapshotTabs/FindLiveTabItems' FindAll (F-02). A plain join()
-    // would then stall WM_DESTROY forever, and with it AppBarRemove (hard rule 4 — dead
-    // strip until explorer restarts). Bounded-join instead: give an in-flight call a
+    // would then stall WM_DESTROY forever, wedging process teardown. Bounded-join
+    // instead: give an in-flight call a
     // moment to finish, else detach so teardown proceeds. Detach is shutdown-only: if
     // the call unhangs while the process is still tearing down (WM_DESTROY → message
     // loop exit, tens–hundreds of ms), the leaked worker touches freed members — UB,

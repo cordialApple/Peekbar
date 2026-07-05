@@ -37,7 +37,7 @@ performance over ETW.
 | Profiler (parallel workstream) | 🟡 consumer P.2–P.4 code complete + builds green; P.1 shell emit not done — see `docs/plans/profiler.md` |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
-**Next action: chip-rework Stage 3 (kill the dock — AppBar removal). Stages 1+2 code-complete + MAY PROCEED; Windows visual check pending (see below).**
+**Next action: chip-rework Stage 4 (dead-code purge + rename + docs). Stages 1–3 code-complete + MAY PROCEED; Windows visual check pending (see below).**
 Active workstream: **taskbar-chip rework** — kill the dock, put minimized-window chips in the taskbar gap
 (plan: `~/.claude/plans/dreamy-stirring-walrus.md`; feasibility: `docs/research/taskbar-chip-feasibility.md`).
 Stage 1 done: chips (minimized windows, title-only, insertion-ordered) render side-by-side in the gap
@@ -47,12 +47,30 @@ overlay next to the automation pills (chips first, pills fill leftover + drop fi
 Stage 2 done: hover a chip → fan opens above it (`WM_NCHITTEST`-driven hover, live-cursor via GetCursorPos;
 overlay posts `kChipHoverMsg`→dock `ShowFanForChip`→`ChipRectScreen` anchor→`FanPopup::Show`); 150ms grace +
 `BeginGrace`/timer cursor-in-fan guard bridges the chip→fan seam; fan row click still uses the existing
-`kFanActivateMsg` tab-activate flow. Dock card-fan path still coexists (transitional; dock dies in Stage 3).
-**Windows visual check pending (Stages 1+2):** minimize 2-3 browsers → title chips in gap; hover a chip →
+`kFanActivateMsg` tab-activate flow.
+Stage 3 done (the AppBar-transition commit): dock KILLED. `DockWindow` is now a never-shown hidden
+coordinator — deleted all `ABM_*`/`m_abd`/`AppBarSetPos`/`AppBarRemove`/`kCallbackMsg`/`DockHeightPx`, dock
+paint, dock mouse handlers, `kHoverTimer`+delayed-switch, `CardAt`/`ButtonAt`/`DockButtons`/`ShowFanFor`,
+and the `kGapStateMsg`/`m_gapActive`/`m_gapResolved` single-host fallback (+ overlay `PostState`/`m_stateMsg`).
+`main.cpp` crash filter (its only job was `ABM_REMOVE`) deleted. Overlay gained `TaskbarMonitor()`
+(`FullscreenOnDockMonitor` sources its monitor there now — hidden host is 1x1 at origin); safety-timer gate →
+`!overlay->Shown()`. **Only `SHAppBarMessage` left in src/ is `ABM_GETSTATE` in `IsAutoHide` (query).**
+Rule 4 now vacuously satisfied (no registration → no removal obligation). Both targets build green;
+inspector burst (AppBar-hygiene + teardown + threading + taskbar-geometry) → adjudicator MAY PROCEED.
+**Windows visual check pending (Stages 1–3):** minimize 2-3 browsers → title chips in gap; hover a chip →
 fan opens above it, slide up into fan (must NOT vanish), click a row → window restores + that tab activates;
-move to another chip → fan repositions instantly (no dwell/hijack); click a chip → window restores.
+move to another chip → fan repositions instantly (no dwell/hijack); click a chip → window restores;
+**no reserved strip above the taskbar remains, exit leaves no dead space**; Start/Search flyout + fullscreen
+still suppress the overlay; config hot-reload still works.
 Debt: [S2-getcursorpos] NCHITTEST hover skips update if GetCursorPos fails (unreachable on live UI thread;
 WM_MOUSELEAVE recovers) — logged, not fixed.
+Debt (from Stage 3 adjudication, non-blocking):
+- [S3-rule6-flyout] Start/Search process-name heuristics (`StartMenuExperienceHost.exe`/`SearchHost.exe`)
+  live in `DockWindow::UpdateOverlaySuppression`, not `TaskbarOverlayWindow` (rule-6 drift; pre-existing).
+- [S3-taskbarmon-openprocess] `TaskbarMonitor()` runs `FindTaskbar`/`OpenProcess` on the UI thread per
+  foreground-change + 1500ms tick (same order as the already-present `ProcessBaseName` cost; cache to shave).
+- [S3-gap-shutdown-leak] `TaskbarOverlayWindow::Destroy` join-then-DestroyWindow can drop one queued
+  `kApplyGapMsg` `Gap*` (shutdown-only; OS reclaims the heap).
 
 Prior (Stage 5) next action, now superseded by the rework: user visual check of Phase 5b + re-verify Stage 1–4 (§12).
 Phase 5b is CODE COMPLETE (5b.1 accepted; 5b.2 pills-in-gap; 5b.3 event-driven re-measure + single-host
