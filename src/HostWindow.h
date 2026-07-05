@@ -55,6 +55,7 @@ private:
     HWINEVENTHOOK     m_winEventHookNameChange = nullptr;
     HWINEVENTHOOK     m_winEventHookForeground = nullptr;
     HWINEVENTHOOK     m_winEventHookLocation   = nullptr;
+    HWINEVENTHOOK     m_winEventHookFgLocation = nullptr;  // set-once global fg LOCATIONCHANGE (in-place fullscreen)
     bool              m_overlaySuppressed      = false;  // current overlay suppression (dedupes)
     UINT              m_taskbarCreatedMsg      = 0;      // RegisterWindowMessageW(L"TaskbarCreated")
     std::unique_ptr<TabReader>     m_tabReader;

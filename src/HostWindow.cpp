@@ -20,6 +20,13 @@ namespace
     constexpr UINT    kTabActivateResultMsg = WM_APP + 8;  // TabReader worker → dock: activate outcome
     constexpr UINT    kChipHoverMsg     = WM_APP + 9;  // overlay → dock: hovered chip changed (HWND, or 0)
     constexpr UINT    kChipClickMsg     = WM_APP + 10; // overlay → dock: a chip was clicked (restore its window)
+    // In-place fullscreen (browser F11, video element, borderless game) keeps the same
+    // foreground HWND, so it fires NO EVENT_SYSTEM_FOREGROUND — only its own rect change. A
+    // set-once global LOCATIONCHANGE hook (see Create) catches it for zero-latency suppression;
+    // kSuppressTimer debounces the transition's resize burst so we read the final rect.
+    constexpr UINT     kFgLocationMsg   = WM_APP + 11;
+    constexpr UINT_PTR kSuppressTimer   = 7;
+    constexpr UINT     kSuppressMs      = 120;
     // 5b.3: re-measure the gap on task-list EVENT_OBJECT_LOCATIONCHANGE, debounced
     // through this one-shot (RequestMeasure is already coalesced by the overlay worker).
     constexpr UINT_PTR kOverlayTimer    = 5;
@@ -36,6 +43,11 @@ namespace
     // Written on the UI thread in Create/WM_DESTROY; read on the same thread in WinEventProc
     // (OUTOFCONTEXT delivers on our message-pump thread). No cross-thread access.
     HWND s_dockHwnd = nullptr;
+
+    // Same single-instance/UI-thread contract as s_dockHwnd. Lets the one static WinEventProc
+    // tell the global fg-fullscreen LOCATIONCHANGE hook apart from the explorer-scoped taskbar
+    // hook (both fire EVENT_OBJECT_LOCATIONCHANGE) and route it to suppression, not a re-measure.
+    HWINEVENTHOOK s_fgLocationHook = nullptr;
 
     void StoreWindow(Store& store, HWND hwnd)
     {
@@ -166,6 +178,14 @@ bool HostWindow::Create(HINSTANCE instance)
         // shifts → gap grows/shrinks). Scope to explorer's PID so we only wake on taskbar
         // layout changes, not every window move system-wide.
         HookTaskbarLocation();
+        // Zero-latency in-place-fullscreen watch. A SINGLE system-wide LOCATIONCHANGE hook set
+        // ONCE, never re-scoped: the old per-foreground re-scope (unhook+hook on every
+        // foreground change) was the churn/crash suspect. The callback filters hard to the
+        // current foreground frame; UpdateOverlaySuppression re-checks the live fg + monitor.
+        m_winEventHookFgLocation = SetWinEventHook(
+            EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE,
+            nullptr, WinEventProc, 0, 0, WINEVENT_OUTOFCONTEXT);
+        s_fgLocationHook = m_winEventHookFgLocation;
     }
 
     // Watch the config dir for live edits. Create it first so the watch attaches even
@@ -310,16 +330,23 @@ LRESULT CALLBACK HostWindow::StaticWndProc(HWND hwnd, UINT msg, WPARAM wparam, L
 }
 
 // static
-void CALLBACK HostWindow::WinEventProc(HWINEVENTHOOK, DWORD event, HWND hwnd,
+void CALLBACK HostWindow::WinEventProc(HWINEVENTHOOK hHook, DWORD event, HWND hwnd,
                                         LONG idObject, LONG, DWORD, DWORD) noexcept
 {
     if (!hwnd || !s_dockHwnd) return;
     if (event == EVENT_OBJECT_LOCATIONCHANGE)
     {
-        // Taskbar-scoped hook only (explorer PID): layout moved → re-measure gap. Window +
-        // client only (XAML task list resizes as OBJID_CLIENT); skip cursor/caret/scrollbar
-        // noise. In-place fullscreen suppression is now polled by the host safety timer, not
-        // a per-foreground hook — far less churn on rapid foreground changes.
+        // Global fg-fullscreen hook: it fires for EVERY window move system-wide, so filter hard
+        // — only the foreground top-level frame resizing itself (→ possible in-place fullscreen)
+        // wakes suppression. UpdateOverlaySuppression re-reads the live foreground + monitor.
+        if (hHook == s_fgLocationHook)
+        {
+            if (idObject == OBJID_WINDOW && hwnd == GetForegroundWindow())
+                PostMessageW(s_dockHwnd, kFgLocationMsg, 0, 0);
+            return;
+        }
+        // Taskbar-scoped hook (explorer PID): layout moved → re-measure gap. Window + client
+        // only (XAML task list resizes as OBJID_CLIENT); skip cursor/caret/scrollbar noise.
         if (idObject == OBJID_WINDOW || idObject == OBJID_CLIENT)
             PostMessageW(s_dockHwnd, kRemeasureMsg, 0, 0);
         return;
@@ -380,6 +407,7 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             KillTimer(hwnd, kConfigTimer);
             KillTimer(hwnd, kOverlayTimer);
             KillTimer(hwnd, kSafetyTimer);
+            KillTimer(hwnd, kSuppressTimer);
             PostQuitMessage(0);
         }
         return 0;
@@ -472,6 +500,11 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             KillTimer(hwnd, kOverlayTimer);  // one-shot debounce
             if (m_taskbarOverlay) m_taskbarOverlay->RequestMeasure();
         }
+        else if (wparam == kSuppressTimer)
+        {
+            KillTimer(hwnd, kSuppressTimer);  // one-shot debounce for the fg-fullscreen resize burst
+            UpdateOverlaySuppression();
+        }
         else if (wparam == kSafetyTimer)  // periodic; NOT killed here
         {
             // Self-heal a dropped LOCATIONCHANGE hook: if explorer's PID was momentarily
@@ -479,11 +512,11 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             // the gap would only re-measure on this slow tick. Re-hook once it resolves.
             // Costs a FindTaskbar only while the hook is actually null (normal case: no-op).
             if (!m_winEventHookLocation) HookTaskbarLocation();
-            // Sole detector for in-place fullscreen (F11 / video / borderless — no
-            // EVENT_SYSTEM_FOREGROUND): re-derive suppression every tick. ~1.5s latency, but
-            // no per-foreground hook churn. Also the backstop for a missed flyout/fullscreen
-            // release. One ProcessBaseName OpenProcess per tick; UpdateOverlaySuppression
-            // early-outs with no repaint when unchanged.
+            // Backstop only: the global fg-location hook drives zero-latency suppression; this
+            // re-derives every tick to self-heal a missed event (flyout self-dismiss, a
+            // fullscreen enter/exit whose LOCATIONCHANGE was filtered out). One ProcessBaseName
+            // OpenProcess per tick; UpdateOverlaySuppression early-outs with no repaint when
+            // unchanged.
             UpdateOverlaySuppression();
             if (m_taskbarOverlay)
             {
@@ -500,6 +533,12 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
     case kRemeasureMsg:
         // Coalesce a LOCATIONCHANGE burst into one measure after 200ms of quiet.
         SetTimer(hwnd, kOverlayTimer, kOverlayMs, nullptr);
+        return 0;
+
+    case kFgLocationMsg:
+        // Coalesce a fullscreen-transition resize burst into one suppression re-derive after
+        // kSuppressMs of quiet — the window reaches its final rect before we check monitor fill.
+        SetTimer(hwnd, kSuppressTimer, kSuppressMs, nullptr);
         return 0;
 
     case kChipHoverMsg:
@@ -613,12 +652,14 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         KillTimer(hwnd, kConfigTimer);
         KillTimer(hwnd, kOverlayTimer);
         KillTimer(hwnd, kSafetyTimer);
+        KillTimer(hwnd, kSuppressTimer);
         UnregisterHotKey(hwnd, kQuitHotkeyId);
         // Then join every worker before unhooking (a worker post lands on s_dockHwnd).
         m_configWatcher.reset();
         m_tabReader.reset();
         m_fanPopup.reset();
         m_taskbarOverlay.reset();
+        if (m_winEventHookFgLocation) { UnhookWinEvent(m_winEventHookFgLocation); m_winEventHookFgLocation = nullptr; s_fgLocationHook = nullptr; }
         if (m_winEventHookLocation)   { UnhookWinEvent(m_winEventHookLocation);   m_winEventHookLocation   = nullptr; }
         if (m_winEventHookForeground) { UnhookWinEvent(m_winEventHookForeground); m_winEventHookForeground = nullptr; }
         if (m_winEventHookNameChange) { UnhookWinEvent(m_winEventHookNameChange); m_winEventHookNameChange = nullptr; }

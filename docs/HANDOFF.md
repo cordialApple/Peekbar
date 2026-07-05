@@ -40,8 +40,9 @@ performance over ETW.
 **TOP PRIORITY next session: RUNTIME-VERIFY the overlay-instability fix on Windows (code done 2026-07-05, see
 session log). Repro that previously broke it: rapidly open/close a terminal (taskbar churn) with a browser
 minimized → confirm NO AV crash and NO stuck visible-but-empty overlay. Also re-check in-place fullscreen (F11/
-video) still hides pills+chips (now ~1.5s latency via the safety-timer poll, no longer instant). If clean, close
-the bug in the memory file project_overlay_instability_bug.**
+video) hides pills+chips with ZERO perceptible latency (restored via a set-once global fg LOCATIONCHANGE hook —
+user rejected the 1.5s-poll latency). NOTE the re-added fg hook carries some risk the AV returns; if it does,
+the set-once global hook is the new suspect (not the old per-fg re-scope). Bug memory already closed per user.**
 
 **Next action: chip-rework Stage 4 CODE-COMPLETE — dead-code purge + `DockWindow`→`HostWindow` rename (aa84dc1) + overlay persistence/perf hardening (a3d8cbc) + fan polish B/C (bd645fd) all committed. Remaining tiny doc polish: reword CLAUDE.md rule 4 (AppBar hygiene → "no AppBar registered; ABM_GETSTATE query-only") + ARCHITECTURE "dock strip" mentions (deferred, low-pri; rule 4 still valid vacuously). DONE since: quit-affordance fix, D (themes+gradient), fullscreen-in-place suppression fix. NEXT FEATURE: A =
 pill icon-fallback, icons extracted from each button's target exe (shrink pill→~28px icon square before dropping
@@ -145,6 +146,22 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-05 — **Zero-latency fullscreen suppression restored (user rejected the 1.5s-poll trade); bug memory
+  closed per user ("it's okay now, not production-ready").** The prior entry's fix routed in-place fullscreen
+  through the 1.5s safety poll (0→1.5s latency). User wanted instant back. Re-added the fg watch but in the shape
+  that avoids the crash suspect: ONE set-once system-wide EVENT_OBJECT_LOCATIONCHANGE hook (idProcess=0/idThread=0,
+  set in Create, NEVER re-scoped — the old per-foreground unhook+hook storm was the churn/crash suspect). Callback
+  (`WinEventProc`, dispatched by `hHook==s_fgLocationHook`) hard-filters to `idObject==OBJID_WINDOW &&
+  hwnd==GetForegroundWindow()` → posts kFgLocationMsg → 120ms kSuppressTimer debounce → UpdateOverlaySuppression.
+  Re-added: kFgLocationMsg/kSuppressTimer/kSuppressMs, s_fgLocationHook, m_winEventHookFgLocation; killed in
+  WM_ENDSESSION+WM_DESTROY; unhooked (+null) in WM_DESTROY. ReassertVisibility()+safety poll kept as backstop.
+  Honest risk: this reintroduces a fg LOCATIONCHANGE hook — removing the fg hook is what the user confirmed made
+  it stable — so the AV *could* return; if so, the set-once global hook is the new suspect. Build+link clean.
+  Inspector burst (threading+teardown) → 3 findings, ALL informational/pre-existing (GetForegroundWindow-in-
+  callback = deliberate flood filter; WM_ENDSESSION-no-unhook = same as every hook in the file, OS reclaims;
+  post-WM_DESTROY timer re-arm self-kills behind a guard) → adjudicator CHECKPOINT MAY PROCEED (no regression;
+  set-once hook strictly better than re-scoping). Simplifier skipped (vetted hook/timer plumbing). RUNTIME/visual
+  verify pending on Windows (see TOP PRIORITY).
 - 2026-07-05 — **Overlay-instability FIX applied (was the OPEN top-priority bug below); runtime-verify pending
   on Windows.** Root-cause direction confirmed: killed the per-foreground-window EVENT_OBJECT_LOCATIONCHANGE hook
   (`HookForegroundLocation`/`m_winEventHookFgLocation`/`s_fgLocationHook`/`kFgLocationMsg`/`kSuppressTimer`/
