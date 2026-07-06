@@ -28,14 +28,23 @@ namespace Paint
             true,
         };
 
+        constexpr Theme kAzure = {
+            RGB(58, 110, 138),  RGB(28, 58, 74),   RGB(55, 190, 243),  kTextPrimary,
+            RGB(50, 96, 120),   RGB(24, 50, 64),   RGB(90, 170, 205),  kTextPrimary,
+            RGB(55, 190, 243),  kChipActiveBg,     kTextActive,
+            kRowHover,
+            true,
+        };
+
         struct Named { const wchar_t* name; const Theme* theme; };
         constexpr Named kThemes[] = {
             { L"slate", &kSlate },
             { L"matte", &kMatte },
             { L"steel", &kSteel },
+            { L"azure", &kAzure },
         };
 
-        const Theme* g_active = &kSlate;
+        const Theme* g_active = &kAzure;
     }
 
     const Theme& ActiveTheme() { return *g_active; }
@@ -46,6 +55,6 @@ namespace Paint
         {
             if (name == t.name) { g_active = t.theme; return; }
         }
-        g_active = &kSlate;
+        g_active = &kAzure;
     }
 }
