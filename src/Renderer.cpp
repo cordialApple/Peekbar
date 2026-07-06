@@ -96,7 +96,7 @@ namespace Renderer
         const int edge = ScalePx(4, dpiI);    // dead-zone: never cover the taskbar edges
         const int gap  = ScalePx(6, dpiI);
         const int chipMax = ScalePx(160, dpiI);
-        const int chipMin = ScalePx(90, dpiI);
+        const int chipMin = ScalePx(60, dpiI);
         const int rowH = rc.bottom - rc.top;
         const int h    = (std::min)(ScalePx(28, dpiI), rowH - 2 * edge);
         if (h < 1) return out;
