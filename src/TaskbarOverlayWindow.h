@@ -71,10 +71,12 @@ public:
 
     bool Shown() const { return m_shown; }
 
-    // UI thread. Force-hide the overlay regardless of the measured gap (Start/Search
-    // flyout open, or a fullscreen app on the taskbar's monitor). While suppressed the
-    // overlay never shows. The caller re-measures after clearing suppression.
     void SetSuppressed(bool suppressed);
+
+    // Register a window (the fan popup) to be re-raised above the overlay after any
+    // SetWindowPos(HWND_TOPMOST) call. Prevents the kSafetyTimer re-assert from z-occluding
+    // an open fan. UI thread only; set once after Create.
+    void SetTopSibling(HWND hwnd) { m_topSibling = hwnd; }
 
     HWND Hwnd() const { return m_hwnd; }
 
@@ -83,13 +85,11 @@ private:
 
     static LRESULT CALLBACK StaticWndProc(HWND, UINT, WPARAM, LPARAM);
     void Paint(HDC hdc);
-    // UI thread: position/show/hide the overlay. allowHysteresis=false (content-only
-    // refresh on a known-valid gap) hides immediately instead of the mid-animation
-    // 300ms retry, which exists only for UIA zero-rects during a taskbar animation.
     void ApplyGap(const Gap& g, bool allowHysteresis = true);
-    int  ButtonAt(POINT ptClient) const;   // UI thread: pill hit-test, or -1
-    HWND ChipAt(POINT ptClient) const;     // UI thread: chip hit-test, or nullptr
-    void UpdateHover(HWND chip);           // UI thread: post chipHoverMsg on hover change
+    void RaiseSibling();  // re-raise m_topSibling (fan) above overlay after TOPMOST re-assert
+    int  ButtonAt(POINT ptClient) const;
+    HWND ChipAt(POINT ptClient) const;
+    void UpdateHover(HWND chip);
 
     const std::vector<Button>& Buttons() const;   // launcher's buttons, or empty
     Renderer::GapLayout ComputeGapLayout() const; // requires m_store
@@ -102,16 +102,17 @@ private:
     HWND            m_hwnd     = nullptr;
     bool            m_shown    = false;
     const Launcher* m_launcher = nullptr;
-    const Store*    m_store    = nullptr;    // UI-thread read only; worker never touches it
+    const Store*    m_store    = nullptr;
     HWND            m_dockHwnd    = nullptr;
     UINT            m_chipClickMsg = 0;
     UINT            m_chipHoverMsg = 0;
-    HWND            m_hoverChip   = nullptr;   // last chip we posted hover for (dedupe)
-    bool            m_mouseTracking = false;   // TME_LEAVE armed (whole-overlay leave)
-    Gap             m_lastGap     = { {}, false };  // last measured gap, for RefreshContent re-fit
-    mutable HWND    m_uiTray      = nullptr;   // UI-thread cache for TaskbarMonitor (NOT the worker's)
-    bool            m_suppressed      = false;  // flyout/fullscreen force-hide (UI thread)
-    int             m_invalidStreak   = 0;      // consecutive bad measures (hysteresis, UI thread)
+    HWND            m_hoverChip   = nullptr;
+    bool            m_mouseTracking = false;
+    Gap             m_lastGap     = { {}, false };
+    mutable HWND    m_uiTray      = nullptr;
+    bool            m_suppressed      = false;
+    int             m_invalidStreak   = 0;
+    HWND            m_topSibling      = nullptr;  // fan popup — re-raised after each TOPMOST re-assert
 
     std::thread             m_thread;
     std::mutex              m_mutex;

@@ -346,8 +346,9 @@ void TaskbarOverlayWindow::ApplyGap(const Gap& g, bool allowHysteresis)
     {
         m_invalidStreak = 0;
         KillTimer(m_hwnd, kRetryTimer);
+        RaiseSibling();
         if (!m_shown) { ShowWindow(m_hwnd, SW_SHOWNOACTIVATE); m_shown = true; }
-        InvalidateRect(m_hwnd, nullptr, TRUE);
+        InvalidateRect(m_hwnd, nullptr, FALSE);
         UpdateWindow(m_hwnd);
         return;
     }
@@ -413,9 +414,36 @@ void TaskbarOverlayWindow::RefreshContent()
     if (m_hwnd && !m_measurePending) ApplyGap(m_lastGap, /*allowHysteresis=*/false);
 }
 
+void TaskbarOverlayWindow::RaiseSibling()
+{
+    if (m_topSibling && IsWindowVisible(m_topSibling))
+        SetWindowPos(m_topSibling, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
 void TaskbarOverlayWindow::ReassertVisibility()
 {
-    if (m_hwnd) ApplyGap(m_lastGap, /*allowHysteresis=*/false);
+    if (!m_hwnd) return;
+    if (!m_shown)
+    {
+        // stuck hidden: caller (HostWindow kSafetyTimer) handles recovery via RequestMeasure
+        return;
+    }
+    if (m_store)
+    {
+        const Renderer::GapLayout layout = ComputeGapLayout();
+        if (layout.chips.empty() && layout.buttons.empty())
+        {
+            // stuck shown-but-empty: hide immediately, no repaint
+            ShowWindow(m_hwnd, SW_HIDE);
+            m_shown = false;
+            return;
+        }
+    }
+    // healthy: re-assert TOPMOST only — no geometry change, no repaint (avoids kSafetyTimer flicker)
+    SetWindowPos(m_hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOREDRAW);
+    RaiseSibling();
 }
 
 const std::vector<Button>& TaskbarOverlayWindow::Buttons() const
@@ -586,25 +614,40 @@ void TaskbarOverlayWindow::Paint(HDC hdc)
 {
     RECT rc;
     GetClientRect(m_hwnd, &rc);
+    const int w = rc.right - rc.left;
+    const int h = rc.bottom - rc.top;
+    if (w <= 0 || h <= 0) return;
+
+    HDC     mem = CreateCompatibleDC(hdc);
+    HBITMAP bmp = mem ? CreateCompatibleBitmap(hdc, w, h) : nullptr;
+    if (!mem || !bmp) { if (bmp) DeleteObject(bmp); if (mem) DeleteDC(mem); return; }
+    HGDIOBJ oldBmp = SelectObject(mem, bmp);
 
     HBRUSH key = CreateSolidBrush(kColorKey);
-    FillRect(hdc, &rc, key);          // gap shows through (transparent via LWA_COLORKEY)
+    FillRect(mem, &rc, key);
     DeleteObject(key);
 
-    if (!m_store) return;
-
-    const UINT rawDpi = GetDpiForWindow(m_hwnd);
-    const int dpi = rawDpi ? static_cast<int>(rawDpi) : 96;
-    const std::vector<Button>& buttons = Buttons();
-    const Renderer::GapLayout layout = Renderer::GapChipLayout(rc, rawDpi, *m_store, buttons);
-
-    const auto& all = m_store->All();
-    for (const Renderer::ChipHit& c : layout.chips)
+    if (m_store)
     {
-        auto it = all.find(c.hwnd);
-        if (it != all.end())
-            Renderer::DrawChip(hdc, c.rect, it->second.title, dpi);
+        const UINT rawDpi = GetDpiForWindow(m_hwnd);
+        const int  dpi    = rawDpi ? static_cast<int>(rawDpi) : 96;
+        const std::vector<Button>& buttons = Buttons();
+        const Renderer::GapLayout layout =
+            Renderer::GapChipLayout(rc, rawDpi, *m_store, buttons);
+
+        const auto& all = m_store->All();
+        for (const Renderer::ChipHit& c : layout.chips)
+        {
+            auto it = all.find(c.hwnd);
+            if (it != all.end())
+                Renderer::DrawChip(mem, c.rect, it->second.title, dpi);
+        }
+        for (const Renderer::ButtonHit& bh : layout.buttons)
+            Renderer::DrawButton(mem, bh.rect, buttons[bh.index], dpi);
     }
-    for (const Renderer::ButtonHit& h : layout.buttons)
-        Renderer::DrawButton(hdc, h.rect, buttons[h.index], dpi);
+
+    BitBlt(hdc, 0, 0, w, h, mem, 0, 0, SRCCOPY);
+    SelectObject(mem, oldBmp);
+    DeleteObject(bmp);
+    DeleteDC(mem);
 }

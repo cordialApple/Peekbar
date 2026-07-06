@@ -171,6 +171,7 @@ bool HostWindow::Create(HINSTANCE instance)
     if (m_taskbarOverlay->Create(instance, &m_launcher, &m_store, hwnd,
                                  kChipClickMsg, kChipHoverMsg))
     {
+        if (m_fanPopup) m_taskbarOverlay->SetTopSibling(m_fanPopup->Hwnd());
         m_taskbarOverlay->RequestMeasure();
         SetTimer(hwnd, kOverlayTimer, kOverlayMs, nullptr);  // backstop: guarantees a 2nd verdict if the 1st post is lost
         SetTimer(hwnd, kSafetyTimer, kSafetyMs, nullptr);    // periodic self-heal (see kSafetyTimer)
