@@ -23,6 +23,15 @@ constexpr int kReadyTimeoutMs  = 3000;   // window visible && !iconic
 constexpr int kTreeTimeoutMs   = 3000;   // TabControl with TabItems present
 constexpr int kConfirmSettleMs = 60;     // settle before re-reading IsSelected
 
+// Backstop against a runaway/cyclic OR pathologically wide tree in
+// FindTabControlsGuided — browser chrome (toolbar, tab strip) is a handful of
+// levels deep and a few dozen nodes wide in practice; this is generous headroom,
+// not a tuned limit. Depth alone doesn't bound cost: a wide, shallow, non-Document
+// sibling fan-out isn't pruned by a depth cap and would otherwise turn one
+// FindLiveTabItems call into unboundedly many cross-process FindAll calls.
+constexpr int kGuidedDescentMaxDepth = 25;
+constexpr int kGuidedDescentMaxNodes = 500;
+
 static long long NowMs()
 {
     using namespace std::chrono;
@@ -95,6 +104,62 @@ static bool IsInsideDocument(IUIAutomation* automation, IUIAutomationElement* st
         current = std::move(parent);
     }
     return false;
+}
+
+// Depth + total-nodes-visited bound, and whether any per-node COM call failed or a
+// bound was hit — see FindTabControlsGuided. A non-empty candidate list from a
+// truncated walk cannot be trusted as complete (the real tab strip could be in the
+// part that was cut off), so the caller must fall back to the blanket search rather
+// than silently proceeding on a partial result.
+struct GuidedDescentState
+{
+    int  visited   = 0;
+    bool truncated = false;
+};
+
+// Pruned search for TabControl elements via TreeScope_Children recursion instead of
+// one TreeScope_Descendants FindAll — never descends into a Document subtree (see
+// activatetab-restore-to-tabfound-bottleneck debt: live capture showed the blanket
+// Descendants search dominates FindLiveTabItems's cost and scales with how much is
+// open, almost certainly because it also walks the current tab's DOM-backed
+// web-content accessibility tree just to discard it afterward via IsInsideDocument).
+// Browser chrome is never inside a Document and web content always is, so pruning at
+// the Document boundary while descending is the mirror image of IsInsideDocument's
+// existing ascending check — in the common case this means fewer candidates to
+// re-check, not a replacement for the check: every candidate still goes through the
+// same IsInsideDocument recheck the blanket path always used (see FindLiveTabItems),
+// which is the actual safety backstop, not this function's pruning alone.
+static void FindTabControlsGuided(IUIAutomationElement* node, IUIAutomationCondition* trueCond,
+                                   int depth, std::vector<ComPtr<IUIAutomationElement>>& outCandidates,
+                                   GuidedDescentState& state)
+{
+    if (depth > kGuidedDescentMaxDepth) { state.truncated = true; return; }
+
+    ComPtr<IUIAutomationElementArray> children;
+    if (FAILED(node->FindAll(TreeScope_Children, trueCond, &children)) || !children)
+    {
+        state.truncated = true;
+        return;
+    }
+
+    int count = 0;
+    children->get_Length(&count);
+    for (int i = 0; i < count; ++i)
+    {
+        if (state.visited >= kGuidedDescentMaxNodes) { state.truncated = true; return; }
+        ++state.visited;
+
+        ComPtr<IUIAutomationElement> child;
+        if (FAILED(children->GetElement(i, &child)) || !child) { state.truncated = true; continue; }
+
+        CONTROLTYPEID ct = 0;
+        if (FAILED(child->get_CurrentControlType(&ct))) { state.truncated = true; continue; }
+        if (ct == UIA_DocumentControlTypeId) continue;   // prune: web content, never the tab strip
+
+        if (ct == UIA_TabControlTypeId) outCandidates.push_back(child);
+
+        FindTabControlsGuided(child.Get(), trueCond, depth + 1, outCandidates, state);
+    }
 }
 
 std::vector<Tab> SnapshotTabs(IUIAutomation* automation, HWND hwnd)
@@ -197,10 +262,11 @@ static bool IsItemSelected(IUIAutomationElement* item)
 struct WalkTiming
 {
     long long usElementFromHandle = 0;
-    long long usFindAllTabCtrls   = 0;
+    long long usFindAllTabCtrls   = 0;   // guided descent, or the blanket-search fallback if it found nothing
     long long usIsInsideDocument  = 0;   // accrues every candidate, incl. continue'd ones
     long long usFindAllTabItems   = 0;   // accrues only when FindAllBuildCache actually runs
     int       tabCtrlCandidates   = 0;   // ctrlCount
+    bool      guidedDescentUsed   = false;
 };
 
 // Like SnapshotTabs but KEEPS the live TabItem element array (elements are not
@@ -238,14 +304,34 @@ static HRESULT FindLiveTabItems(IUIAutomation* automation, HWND hwnd,
         return E_FAIL;
 
     long long tFindCtrlsUs = trace::NowUs();
-    ComPtr<IUIAutomationElementArray> tabCtrls;
-    if (FAILED(elem->FindAll(TreeScope_Descendants, tabCtrlCond.Get(), &tabCtrls)) || !tabCtrls)
-        return E_FAIL;
-    timing.usFindAllTabCtrls = trace::NowUs() - tFindCtrlsUs;
+    std::vector<ComPtr<IUIAutomationElement>> guidedCandidates;
+    ComPtr<IUIAutomationCondition> trueCond;
+    GuidedDescentState guidedState;
+    if (SUCCEEDED(automation->CreateTrueCondition(&trueCond)) && trueCond)
+        FindTabControlsGuided(elem.Get(), trueCond.Get(), 0, guidedCandidates, guidedState);
 
+    // Fallback: guided descent found nothing, OR its walk was truncated (depth/node
+    // cap hit, or any per-node COM call failed) — a truncated walk's candidate list
+    // cannot be trusted as complete even if non-empty, since the real tab strip could
+    // be in the part that got cut off. Falls back to the original blanket search in
+    // this same call, so correctness never regresses versus the pre-guided-descent
+    // code (never silently miss the real tab strip).
+    ComPtr<IUIAutomationElementArray> tabCtrls;
+    const bool usedGuided = !guidedCandidates.empty() && !guidedState.truncated;
     int ctrlCount = 0;
-    tabCtrls->get_Length(&ctrlCount);
+    if (usedGuided)
+    {
+        ctrlCount = static_cast<int>(guidedCandidates.size());
+    }
+    else
+    {
+        if (FAILED(elem->FindAll(TreeScope_Descendants, tabCtrlCond.Get(), &tabCtrls)) || !tabCtrls)
+            return E_FAIL;
+        tabCtrls->get_Length(&ctrlCount);
+    }
+    timing.usFindAllTabCtrls = trace::NowUs() - tFindCtrlsUs;
     timing.tabCtrlCandidates = ctrlCount;
+    timing.guidedDescentUsed = usedGuided;
 
     vt.lVal = UIA_TabItemControlTypeId;
     ComPtr<IUIAutomationCondition> tabItemCond;
@@ -255,7 +341,8 @@ static HRESULT FindLiveTabItems(IUIAutomation* automation, HWND hwnd,
     for (int ci = 0; ci < ctrlCount; ++ci)
     {
         ComPtr<IUIAutomationElement> tabCtrl;
-        if (FAILED(tabCtrls->GetElement(ci, &tabCtrl)) || !tabCtrl) continue;
+        if (usedGuided) tabCtrl = guidedCandidates[ci];
+        else if (FAILED(tabCtrls->GetElement(ci, &tabCtrl)) || !tabCtrl) continue;
 
         long long tInsideDocUs = trace::NowUs();
         const bool insideDoc = IsInsideDocument(automation, tabCtrl.Get());
@@ -335,7 +422,6 @@ TabActivateResult ActivateTab(IUIAutomation* automation, HWND hwnd,
     long long tReadyUs = 0;
     int gate1Attempts = 0, gate2Attempts = 0;
     long long tFirstWalkUs = -1, tLastWalkUs = -1;
-    long long tWarmupUs = -1;
     // Reported from the winning call only (overwritten every gate-2 iteration,
     // same pattern as tLastWalkUs — the last write before a break IS the winner's).
     WalkTiming lastWalkTiming;
@@ -360,26 +446,11 @@ TabActivateResult ActivateTab(IUIAutomation* automation, HWND hwnd,
             TraceLoggingInt64(lastWalkTiming.usIsInsideDocument, "us_is_inside_document"),
             TraceLoggingInt64(lastWalkTiming.usFindAllTabItems, "us_findall_tabitems"),
             TraceLoggingInt32(lastWalkTiming.tabCtrlCandidates, "tabctrl_candidates"),
-            TraceLoggingInt64(tWarmupUs, "us_warmup_touch"));
+            TraceLoggingInt32(lastWalkTiming.guidedDescentUsed ? 1 : 0, "guided_descent_used"));
         return std::move(r);
     };
 
     if (!automation) return Finish();
-
-    // Cold-provider warm-up probe (activatetab-restore-to-tabfound-bottleneck debt:
-    // Opus's read of the 5-field walk split is that us_element_from_handle's ~31%
-    // share is the FIRST UIA call after restore paying Chromium's lazy accessibility-
-    // tree materialization cost, not the lookup itself). Fired once, as early as
-    // possible — before Gate 1's poll-sleep — so any materialization it triggers can
-    // overlap wall-clock time Gate 1 already spends waiting for window visibility.
-    // Diagnostic only: result discarded, failure ignored, no cached/reused element —
-    // cannot affect which tab gets selected or make ActivateTab select the wrong one.
-    {
-        const long long tWarmupStartUs = trace::NowUs();
-        ComPtr<IUIAutomationElement> warmupElem;
-        automation->ElementFromHandle(hwnd, &warmupElem);
-        tWarmupUs = trace::NowUs() - tWarmupStartUs;
-    }
 
     const long long t0 = NowMs();
 

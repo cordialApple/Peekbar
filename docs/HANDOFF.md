@@ -41,43 +41,44 @@ performance over ETW.
 visible-but-empty overlay under terminal churn; fullscreen suppression latency OK. Former top priority, now
 closed.**
 
-**Next action: 5-field split's live capture came back AMBIGUOUS vs. the pre-registered fork — Opus re-read it
-and a new "cold-provider warm-up" probe is now code, needs its own live capture.** 23-click capture (elevated
-`shell_profiler --raw`, all `gate2_attempts=1`) gave a clean breakdown of the ~327ms avg walk:
-`us_findall_tabctrls` 54.7% (178.6ms avg, still the single largest piece), `us_element_from_handle` **31.0%
-(101.3ms avg) — NOT anticipated**, `us_findall_tabitems` 7.6%, `us_is_inside_document` 6.5% (rules out the
-candidate-culling branch outright — `tabctrl_candidates` averaged 2.17, never 1, but the parent-walk cost to
-reject them is cheap). The 4 fields sum to 99.8% of the walk (clean accounting). Sent this to Opus (per this
-investigation's "check with Opus before choosing a fix" rule): `ElementFromHandle` is normally a near-instant
-HWND→element lookup, not a tree walk — 101ms means it's paying the cost of being the FIRST UIA call after
-restore, i.e. Chromium's lazy accessibility-tree materialization, not the lookup itself. Opus's read: this
-means guided descent (the pre-registered fix for a `us_findall_tabctrls`-dominant result) is capped at well
-under its naive 54.7% headroom if step 3 is paying leftover materialization cost rather than pure scope-
-proportional walking — so guided descent's real ceiling is unknown until that's ruled out. **Opus's explicit
-recommendation: do NOT write guided descent yet.** Instead landed a diagnostic-only "warm-up touch" — one
-throwaway `automation->ElementFromHandle(hwnd, &warmupElem)` fired as early as possible in `ActivateTab`
-(before Gate 1's poll-sleep even starts), timed, result/HRESULT fully discarded, reported as a new
-`us_warmup_touch` field on `FanActivateLatency` (append-only, after all 16 pre-existing fields). Zero
-control-flow dependency — cannot affect tab selection. If a capture with this shows both
-`us_element_from_handle` AND `us_findall_tabctrls` collapse together, that confirms cold-provider
-materialization (not FindAll's scope) is the real bottleneck, and the fix becomes "warm the provider during
-the restore-settle window already being slept through" — no tree-shape assumptions, no wrong-tab risk. Only
-if `us_findall_tabctrls` stays large after warm-up does guided descent become the next move — and even then
-with a mandatory safety backstop Opus specified: re-verify `ControlType==TabControl && !IsInsideDocument`
-after descending, falling back to the existing blanket `FindAll` if either check fails (since candidates
-average 2.17, never 1 — there's always a decoy to land on wrong). Threading-rule-violations inspector (only
-applicable lens) → one INFORMATIONAL nit (warm-up call isn't `stop`-cancelable, but neither is any of the
-pre-existing walk's UIA calls — same accepted shape) → adjudicator MAY PROCEED. Simplifier ran clean (no
-changes). Both targets build green. Adjudicator's explicit note: this warm-up block is throwaway diagnostic
-scaffolding by design — rip it out once the hypothesis is resolved, don't let it calcify into shipped code.
-**NEXT STEP: another live capture on Windows** (same method — elevated `shell_profiler --raw > file.txt`,
-~15-20 real fan-clicks), then compare `us_warmup_touch`/`us_element_from_handle`/`us_findall_tabctrls`
-against this session's numbers to settle materialization-vs-scope before writing any real fix. **Caching the
-TabControl element across minimize/restore stays explicitly rejected** — a stale post-restore UIA element can
-return silently-wrong data (S_OK, no thrown exception, no FAILED(hr)), risking the exact "select the wrong
-tab silently" bug `ActivateTab` already guards against; only revisit if guided descent (once/if it's the
-chosen fix) proves insufficient, and only with explicit staleness validation added. PowerBI model can be
-extended the same way once more segment data exists.
+**Next action: guided-descent fix LANDED (this session) — needs a live Windows capture to confirm it actually
+helps.** Full chain this session: the cold-provider warm-up probe (previous entry) got its own 23-click
+capture; `us_element_from_handle` collapsed 101.3ms→12.3ms as predicted, but the probe itself cost ~151ms
+serially (no way to overlap it — `ActivateTab` runs on one worker thread with no sub-threading, so a warm-up
+call can only ever move cost around or add it, never recoup wall-clock; total `duration_us` went UP
+574.6ms→635.3ms). Sent this back to Opus: **decisive recommendation — abandon warm-up, remove the probe,
+switch to guided descent**, because the real signal in that same data was `tabctrl_candidates` (2.17→3.74)
+and `us_findall_tabctrls` (178.6ms→257.6ms) rising together — `FindAll(Descendants)` scales with how much
+UIA tree exists, which is exactly what guided descent targets, vs. materialization's ~150ms fixed floor
+which can't be eliminated. User confirmed via AskUserQuestion; warm-up probe removed (`us_warmup_touch` field
+gone). Implemented guided descent in `FindLiveTabItems` (`TabReader.cpp`): new `FindTabControlsGuided`
+recurses `TreeScope_Children` (not blanket `TreeScope_Descendants`) and prunes any Document-role subtree —
+browser chrome is never inside a Document, web content always is, so this structurally skips walking the
+current tab's (potentially huge, DOM-backed) web-content accessibility tree, which the old blanket search had
+to walk and then discard via `IsInsideDocument` anyway. Falls back to the original blanket search in the same
+call whenever guided descent finds zero candidates. New `guided_descent_used` field on `FanActivateLatency`
+(append-only) distinguishes which path ran in a live capture. **Two real safety issues surfaced by a
+correctness-focused inspector pass (beyond the standard threading lens — added because this is genuinely
+"never silently select the wrong tab" territory) and were fixed before commit, not just noted:** (1) unbounded
+breadth — a depth cap alone doesn't bound a wide sibling fan-out, so added `kGuidedDescentMaxNodes = 500`
+alongside the depth cap; (2) silent truncation — the walk's early-outs didn't signal the caller, so a
+non-empty-but-incomplete candidate list (real tab strip in a truncated branch) could have been trusted instead
+of triggering the fallback — fixed via a `GuidedDescentState{visited, truncated}` threaded through the
+recursion, with `usedGuided` now requiring `!truncated` too. Re-inspected both lenses after the fix — both
+original findings confirmed resolved. Adjudicator MAY PROCEED (two informational-severity items logged as
+debt below, not blocking: the 500-call worst-case teardown-timing budget, and a pre-existing multi-TabControl
+first-hit-wins ordering risk shared with unchanged `SnapshotTabs` — neither is a regression in kind). Simplifier
+ran clean twice (once on the initial guided-descent diff, once after the safety fixes) — no changes either
+time. Both targets build clean.
+**NEXT STEP: live capture on Windows** (same method — elevated `shell_profiler --raw > file.txt`, ~15-20 real
+fan-clicks), read `guided_descent_used` (confirms the fast path is actually being taken, not silently falling
+back every time) and compare `us_findall_tabctrls`/total `duration_us` against this session's two prior
+captures. If guided descent measurably shrinks `us_findall_tabctrls`, this fix is done; if it doesn't (or
+falls back constantly), the guided-descent assumption about browser chrome tree shape needs revisiting — do
+not assume it worked from the code alone. **Caching the TabControl element across minimize/restore stays
+explicitly rejected** — a stale post-restore UIA element can return silently-wrong data (S_OK, no thrown
+exception, no FAILED(hr)), risking the exact "select the wrong tab silently" bug `ActivateTab` already guards
+against; not revisited by this fix. PowerBI model can be extended the same way once more segment data exists.
 Feature A (pill icon-fallback) is parked, code-complete, on branch `feat/pill-icon-fallback` (69064ee/bfb1d54,
 based off this branch) — not merged, picked up whenever.
 Tiny doc polish DONE this session (ef2f51c): CLAUDE.md rule 4 + project blurb reworded, ARCHITECTURE.md's
@@ -171,6 +172,19 @@ Deferred debt:
   optimization target" note elsewhere in this file — not a new problem, but now it has numbers instead of a
   vibe. Raw per-click data + a dashboard: `scratchpad` on the machine that ran the capture (not checked into
   the repo — regenerate via `shell_profiler --raw` if needed, see profiler/README.md).
+- [guided-descent-teardown-budget] `FindTabControlsGuided`'s worst case (`kGuidedDescentMaxNodes = 500`) is
+  up to ~500 `FindAll(TreeScope_Children)`+`get_CurrentControlType` COM call pairs in one `FindLiveTabItems`
+  call, versus the old code's single unbounded-duration `FindAll(Descendants)` call. Same accepted risk
+  class as the existing `~TabReader()` 2s-bounded-join-then-detach teardown story (`m_stop` never bounded
+  in-flight COM calls, only sleeps) — not a regression in kind, but the actual worst-case latency of 500
+  small calls vs. one big call hasn't been measured against that budget. Revisit if teardown ever visibly
+  hangs after this change.
+- [guided-descent-multi-tabcontrol-order] If a window ever exposes more than one legitimate (non-Document)
+  TabControl, guided descent's traversal order need not match the old blanket `FindAll(Descendants)`'s order,
+  so "first candidate with a non-empty tab list wins" could pick a different TabControl than before. Same
+  first-hit-wins shape already existed unchanged in `SnapshotTabs`; not introduced or worsened in kind by
+  this fix, only in which candidate wins on the (currently unobserved) case of a browser exposing >1
+  legitimate TabControl. Revisit only if a live capture or bug report shows this actually happening.
 
 **Build note (this machine):** VS2022 Pro's C++ install now works — the
 canonical CLAUDE.md commands (`cmake -B build -G "Visual Studio 17 2022"`,
@@ -204,6 +218,41 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-08 — Warm-up-touch probe's live capture came back, abandoned per Opus, replaced with guided descent
+  (landed, awaiting live capture). 23-click warm-up capture: `us_element_from_handle` collapsed 101.3ms→12.3ms
+  exactly as the materialization hypothesis predicted, but `us_warmup_touch` itself cost ~151ms and total
+  `duration_us` went UP (574.6ms→635.3ms) — sent both numbers to a second Opus review, which gave a decisive
+  call: abandon warm-up (structurally incapable of recouping wall-clock in this project's one-worker-thread-
+  per-call model — a serial call is a serial call regardless of where it's placed), and pivot to guided
+  descent, because `tabctrl_candidates` (2.17→3.74) and `us_findall_tabctrls` (178.6ms→257.6ms) rising
+  together in that same data is the real signal: `FindAll(Descendants)` scales with open-tab/window count,
+  which guided descent directly targets, unlike materialization's fixed ~150ms floor. User confirmed via
+  AskUserQuestion before any code was written. Removed the warm-up probe (`tWarmupUs`, its block in
+  `ActivateTab`, the `us_warmup_touch` field) — pure deletion, no residual. Implemented guided descent:
+  `FindTabControlsGuided` (`TabReader.cpp`) recurses `TreeScope_Children` instead of one blanket
+  `TreeScope_Descendants` `FindAll`, pruning any Document-role subtree (browser chrome is never inside a
+  Document, web content always is — mirrors `IsInsideDocument`'s existing ascending check as a descending
+  one), falling back to the original blanket search in the same call if guided descent finds zero candidates.
+  New `guided_descent_used` field on `FanActivateLatency`. Given the "never silently select the wrong tab"
+  hard invariant, ran TWO inspector lenses (not just the mandatory threading one) — added a custom tab-
+  selection-correctness lens given the stakes. First pass surfaced two real (not just cosmetic) issues:
+  unbounded sibling fan-out (depth cap alone doesn't bound breadth) and silent truncation (a failed/bounded-
+  out sub-walk could leave `guidedCandidates` non-empty-but-incomplete without signaling the caller, so the
+  blanket-search fallback would never trigger on a genuinely incomplete result — the closest thing to an
+  actual wrong-tab risk found this session). Fixed both: `kGuidedDescentMaxNodes = 500` node cap, and a new
+  `GuidedDescentState{visited, truncated}` threaded through the recursion so ANY truncation (depth cap, node
+  cap, or any per-node COM call failure) forces the fallback regardless of what was already found. Re-ran
+  both lenses against the fix — both original findings confirmed resolved; adjudicator MAY PROCEED (two
+  informational-severity items logged as debt: the 500-call teardown-timing budget, and a pre-existing
+  multi-TabControl first-hit-wins ordering risk already shared with unchanged `SnapshotTabs`, neither a
+  regression in kind). Simplifier ran clean twice (initial diff, and again after the safety fixes) — no
+  changes either time. `Contract.h` + `ARCHITECTURE.md` §10 updated (append-only) both times (warm-up
+  removal, then guided descent's field). Both targets build clean — two `taskkill`/manual-close cycles needed
+  on a stubborn elevated `browser_shell_os.exe` holding the link lock (access-denied to a non-elevated
+  taskkill; had the user close it directly). Not yet done: a live capture confirming guided descent actually
+  helps (read `guided_descent_used` to confirm the fast path is really being taken, then compare
+  `us_findall_tabctrls`/total `duration_us` against this session's two prior captures) — that's the next
+  session's first move, per the Next-action note above.
 - 2026-07-08 — Landed Opus's 5-field `FindLiveTabItems` split (`TabReader.cpp`): new `WalkTiming` struct
   times `ElementFromHandle`, the TabControl `FindAll(Descendants)` (prime suspect), the per-candidate
   `IsInsideDocument` parent-walk (accrued over every candidate incl. `continue`d ones), the TabItem
