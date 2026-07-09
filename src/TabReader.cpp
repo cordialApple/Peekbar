@@ -335,6 +335,7 @@ TabActivateResult ActivateTab(IUIAutomation* automation, HWND hwnd,
     long long tReadyUs = 0;
     int gate1Attempts = 0, gate2Attempts = 0;
     long long tFirstWalkUs = -1, tLastWalkUs = -1;
+    long long tWarmupUs = -1;
     // Reported from the winning call only (overwritten every gate-2 iteration,
     // same pattern as tLastWalkUs — the last write before a break IS the winner's).
     WalkTiming lastWalkTiming;
@@ -358,11 +359,27 @@ TabActivateResult ActivateTab(IUIAutomation* automation, HWND hwnd,
             TraceLoggingInt64(lastWalkTiming.usFindAllTabCtrls, "us_findall_tabctrls"),
             TraceLoggingInt64(lastWalkTiming.usIsInsideDocument, "us_is_inside_document"),
             TraceLoggingInt64(lastWalkTiming.usFindAllTabItems, "us_findall_tabitems"),
-            TraceLoggingInt32(lastWalkTiming.tabCtrlCandidates, "tabctrl_candidates"));
+            TraceLoggingInt32(lastWalkTiming.tabCtrlCandidates, "tabctrl_candidates"),
+            TraceLoggingInt64(tWarmupUs, "us_warmup_touch"));
         return std::move(r);
     };
 
     if (!automation) return Finish();
+
+    // Cold-provider warm-up probe (activatetab-restore-to-tabfound-bottleneck debt:
+    // Opus's read of the 5-field walk split is that us_element_from_handle's ~31%
+    // share is the FIRST UIA call after restore paying Chromium's lazy accessibility-
+    // tree materialization cost, not the lookup itself). Fired once, as early as
+    // possible — before Gate 1's poll-sleep — so any materialization it triggers can
+    // overlap wall-clock time Gate 1 already spends waiting for window visibility.
+    // Diagnostic only: result discarded, failure ignored, no cached/reused element —
+    // cannot affect which tab gets selected or make ActivateTab select the wrong one.
+    {
+        const long long tWarmupStartUs = trace::NowUs();
+        ComPtr<IUIAutomationElement> warmupElem;
+        automation->ElementFromHandle(hwnd, &warmupElem);
+        tWarmupUs = trace::NowUs() - tWarmupStartUs;
+    }
 
     const long long t0 = NowMs();
 

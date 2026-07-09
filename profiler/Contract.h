@@ -21,14 +21,14 @@
 //                       us_gate1_wait, gate1_attempts, us_gate2_wait, gate2_attempts,
 //                       us_first_walk, us_last_walk, us_element_from_handle,
 //                       us_findall_tabctrls, us_is_inside_document, us_findall_tabitems,
-//                       tabctrl_candidates
+//                       tabctrl_candidates, us_warmup_touch
 //                       (fan click -> tab-visible latency chain; duration_us
 //                       spans click to activation-confirmed, a proxy for first
 //                       visible frame, not a true paint signal. The gate1/gate2/
 //                       walk fields split us_restore_to_tabfound diagnostically —
 //                       gate1 = window-visible wait, gate2 = UIA tab-tree-walkable
 //                       wait, first/last_walk = duration of the first vs. most
-//                       recent FindLiveTabItems call within gate 2. The last five
+//                       recent FindLiveTabItems call within gate 2. The next five
 //                       fields split that winning FindLiveTabItems call itself:
 //                       element_from_handle (ElementFromHandle), findall_tabctrls
 //                       (FindAll(Descendants) for TabControls — prime suspect),
@@ -36,9 +36,14 @@
 //                       web-content documents, accrued across all candidates
 //                       tried), findall_tabitems (FindAllBuildCache for TabItems,
 //                       accrued only when it actually runs), tabctrl_candidates
-//                       (how many TabControl candidates were tried). Fields are
-//                       appended after the pre-existing ones — TDH decodes this
-//                       event positionally, so field ORDER must stay append-only;
+//                       (how many TabControl candidates were tried). us_warmup_touch
+//                       is a diagnostic-only throwaway ElementFromHandle call fired
+//                       as early as possible (before Gate 1's poll-sleep) to test
+//                       whether it's paying Chromium's cold-provider materialization
+//                       cost so the later, timed calls don't have to — result is
+//                       always discarded and never gates or influences tab selection.
+//                       Fields are appended after the pre-existing ones — TDH decodes
+//                       this event positionally, so field ORDER must stay append-only;
 //                       never reorder or insert ahead of existing fields.)
 
 namespace contract {

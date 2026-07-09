@@ -41,30 +41,42 @@ performance over ETW.
 visible-but-empty overlay under terminal churn; fullscreen suppression latency OK. Former top priority, now
 closed.**
 
-**Next action: 5-field `FindLiveTabItems` split LANDED (this session) — next is a live capture on Windows,
-then pick the fix.** Opus's recommended instrumentation pass (see prior entries) is now code: `WalkTiming`
-struct in `TabReader.cpp` times the winning gate-2 `FindLiveTabItems` call's internals and appends 5 fields
-to `FanActivateLatency` (after all pre-existing ones, positional-decode-safe) — `us_element_from_handle`,
-`us_findall_tabctrls` (prime suspect — the full-subtree TabControl search), `us_is_inside_document`
-(accrued across every candidate tried, including `continue`d ones), `us_findall_tabitems` (accrued only when
-`FindAllBuildCache` actually runs), `tabctrl_candidates`. `Contract.h` + `ARCHITECTURE.md` §10 updated to
-match. Inspector (threading-rule-violations, the only applicable lens — no lifetime/exit-path or paint/sizing
-code touched) → clean → adjudicator MAY PROCEED. Simplifier ran clean (no changes — diff already matches the
-file's existing timing-idiom conventions). Both targets build green.
-**NEXT STEP: capture ~15-20 more real fan-clicks on Windows** (elevated `shell_profiler --raw > file.txt`,
-same method as the 19-click capture — remember `--csv` can't show these per-event fields, only `--raw` can).
-Read the new fields to settle the fork Opus set this pass up for: if `us_findall_tabctrls` dominates →
-`FindAll(Descendants)` on the TabControl search is the cost → try guided descent (`TreeScope_Children` +
-manual descent toward the known "Tab bar" pane) instead of blanket `Descendants`, isolated in `TabReader.cpp`
-(rule 6). If `us_is_inside_document` dominates with `tabctrl_candidates>1` → cost is rejecting web-content
-candidates before the real TabControl → candidate culling is the fix instead. If neither field explains the
-~283ms and the cost is spread/unaccounted → Chromium's lazy tree-rebuild cost is likely paid regardless of
-query scope → narrowing won't help; fall back to perceived-latency UI (instant "restoring…" state) rather
-than chasing the raw number further. **Only after this capture should a fix be chosen** — do not guess from
-the code alone. **Caching the TabControl element across minimize/restore stays explicitly rejected** — a
-stale post-restore UIA element can return silently-wrong data (S_OK, no thrown exception, no FAILED(hr)),
-risking the exact "select the wrong tab silently" bug `ActivateTab` already guards against; only revisit if
-guided descent proves insufficient, and only with explicit staleness validation added. PowerBI model can be
+**Next action: 5-field split's live capture came back AMBIGUOUS vs. the pre-registered fork — Opus re-read it
+and a new "cold-provider warm-up" probe is now code, needs its own live capture.** 23-click capture (elevated
+`shell_profiler --raw`, all `gate2_attempts=1`) gave a clean breakdown of the ~327ms avg walk:
+`us_findall_tabctrls` 54.7% (178.6ms avg, still the single largest piece), `us_element_from_handle` **31.0%
+(101.3ms avg) — NOT anticipated**, `us_findall_tabitems` 7.6%, `us_is_inside_document` 6.5% (rules out the
+candidate-culling branch outright — `tabctrl_candidates` averaged 2.17, never 1, but the parent-walk cost to
+reject them is cheap). The 4 fields sum to 99.8% of the walk (clean accounting). Sent this to Opus (per this
+investigation's "check with Opus before choosing a fix" rule): `ElementFromHandle` is normally a near-instant
+HWND→element lookup, not a tree walk — 101ms means it's paying the cost of being the FIRST UIA call after
+restore, i.e. Chromium's lazy accessibility-tree materialization, not the lookup itself. Opus's read: this
+means guided descent (the pre-registered fix for a `us_findall_tabctrls`-dominant result) is capped at well
+under its naive 54.7% headroom if step 3 is paying leftover materialization cost rather than pure scope-
+proportional walking — so guided descent's real ceiling is unknown until that's ruled out. **Opus's explicit
+recommendation: do NOT write guided descent yet.** Instead landed a diagnostic-only "warm-up touch" — one
+throwaway `automation->ElementFromHandle(hwnd, &warmupElem)` fired as early as possible in `ActivateTab`
+(before Gate 1's poll-sleep even starts), timed, result/HRESULT fully discarded, reported as a new
+`us_warmup_touch` field on `FanActivateLatency` (append-only, after all 16 pre-existing fields). Zero
+control-flow dependency — cannot affect tab selection. If a capture with this shows both
+`us_element_from_handle` AND `us_findall_tabctrls` collapse together, that confirms cold-provider
+materialization (not FindAll's scope) is the real bottleneck, and the fix becomes "warm the provider during
+the restore-settle window already being slept through" — no tree-shape assumptions, no wrong-tab risk. Only
+if `us_findall_tabctrls` stays large after warm-up does guided descent become the next move — and even then
+with a mandatory safety backstop Opus specified: re-verify `ControlType==TabControl && !IsInsideDocument`
+after descending, falling back to the existing blanket `FindAll` if either check fails (since candidates
+average 2.17, never 1 — there's always a decoy to land on wrong). Threading-rule-violations inspector (only
+applicable lens) → one INFORMATIONAL nit (warm-up call isn't `stop`-cancelable, but neither is any of the
+pre-existing walk's UIA calls — same accepted shape) → adjudicator MAY PROCEED. Simplifier ran clean (no
+changes). Both targets build green. Adjudicator's explicit note: this warm-up block is throwaway diagnostic
+scaffolding by design — rip it out once the hypothesis is resolved, don't let it calcify into shipped code.
+**NEXT STEP: another live capture on Windows** (same method — elevated `shell_profiler --raw > file.txt`,
+~15-20 real fan-clicks), then compare `us_warmup_touch`/`us_element_from_handle`/`us_findall_tabctrls`
+against this session's numbers to settle materialization-vs-scope before writing any real fix. **Caching the
+TabControl element across minimize/restore stays explicitly rejected** — a stale post-restore UIA element can
+return silently-wrong data (S_OK, no thrown exception, no FAILED(hr)), risking the exact "select the wrong
+tab silently" bug `ActivateTab` already guards against; only revisit if guided descent (once/if it's the
+chosen fix) proves insufficient, and only with explicit staleness validation added. PowerBI model can be
 extended the same way once more segment data exists.
 Feature A (pill icon-fallback) is parked, code-complete, on branch `feat/pill-icon-fallback` (69064ee/bfb1d54,
 based off this branch) — not merged, picked up whenever.
@@ -205,6 +217,35 @@ one line to the session log. Keep this file short — prune, don't accumulate.
   diff, a separate simplifier target. Both targets build clean on Windows. Not yet done: an actual live capture with this
   instrumentation (elevated `shell_profiler --raw`, ~15-20 real fan-clicks) — that's the next session's first
   move, per the Next-action note above; only after reading those numbers should a fix be chosen.
+- 2026-07-08 — 23-click live capture of the 5-field `FindLiveTabItems` split (elevated `shell_profiler --raw`,
+  same UTF-16LE-via-Grep-tool workflow as the 19-click capture) + Opus re-review + a follow-up warm-up-touch
+  probe landed in response. Capture confirmed `gate2_attempts=1` in all 23 rows (retries still ruled out) and
+  gave a clean breakdown of the walk: `us_findall_tabctrls` 54.7% avg (still the largest single piece, as
+  anticipated), but `us_element_from_handle` came back 31.0% avg — NOT one of the two pre-registered fork
+  branches. Sent the full table to an Opus review agent (per this investigation's "check with Opus before
+  choosing a fix" precedent): Opus's read is that 101ms average for a normally-near-instant HWND→element
+  lookup means `ElementFromHandle` is paying the cost of being the *first* UIA call after restore — Chromium's
+  lazy accessibility-tree materialization tax — not genuine lookup work, and `FindAll` (step 3) likely pays a
+  second installment of that same tax while walking the still-inflating tree. Opus's conclusion: guided
+  descent's real ceiling is unknown until materialization-vs-scope is disentangled, so writing it now risks
+  effort on a sub-55%-or-much-less win; also confirmed `us_is_inside_document` at 6.5% rules out the
+  candidate-culling branch entirely (`tabctrl_candidates` avg 2.17, never 1, but rejecting them is cheap).
+  Opus's recommended next code change (implemented this session, user confirmed via AskUserQuestion before
+  writing it): a throwaway diagnostic "warm-up touch" — one `automation->ElementFromHandle(hwnd, &warmupElem)`
+  fired as early as possible in `ActivateTab`, before Gate 1's poll-sleep, timed, result/HRESULT fully
+  discarded, reported as append-only `us_warmup_touch` on `FanActivateLatency`. `tWarmupUs` had to be hoisted
+  above the `Finish` lambda's `[&]` capture (first attempt hit a real compile error — lambdas can't capture a
+  not-yet-declared reference — fixed by moving the declaration up next to the sibling diagnostic locals, same
+  pattern `tReadyUs`/`gate1Attempts` already use). `Contract.h` + `ARCHITECTURE.md` §10 updated. Threading-
+  rule-violations inspector (only applicable lens) → one INFORMATIONAL nit (warm-up call isn't `stop`-
+  cancelable — same accepted shape as the pre-existing walk's UIA calls, not a new risk class) → adjudicator
+  MAY PROCEED, with an explicit note that this is throwaway scaffolding to rip out once the hypothesis
+  resolves. Simplifier ran clean (no changes on either this diff or the earlier 5-field split's diff — the
+  latter's simplifier run succeeded on the first attempt this session, unlike two prior transient-error
+  attempts logged as debt below for a *different*, still-committed diff). Both targets build clean
+  (had to `taskkill` a leftover `browser_shell_os.exe` PID holding the link lock, same as prior sessions).
+  Not yet done: a live capture WITH this warm-up field — that's the next session's first move, per the
+  Next-action note above.
 - 2026-07-08 — Restore-to-tabfound root cause LOCALIZED (no code changed this entry — analysis only,
   continuing the same-day instrumentation work below). Live capture: 19 real fan-clicks, elevated
   `shell_profiler --raw` redirected to a file (`--csv`'s MetricsView can't show per-event fields, only
