@@ -10,8 +10,8 @@
 // hardcoded GUID is never checked in and cannot drift from the name.
 //
 // Events (self-describing TraceLogging; decoded via TDH, no manifest):
-//   AppBarNegotiate   duration_us, edge, resulting rect
-//   Paint             duration_us, dirty w x h
+//   Paint             duration_us, dirty_w, dirty_h (TaskbarOverlayWindow::Paint;
+//                     AppBarNegotiate dropped — chip-rework killed the AppBar dock)
 //   WinEventCallback  event id, hwnd
 //   UiaSnapshot       duration_us, hwnd, tab_count, hr
 //   StoreUpdate       tracked_windows, total_tabs

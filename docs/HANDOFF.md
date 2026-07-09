@@ -34,7 +34,7 @@ performance over ETW.
 | Stage 3 — single-window tabs | ✅ Complete — tabs render per-window on minimize, accepted on Win11 |
 | Stage 4 — multi-window stacks | 🟡 code complete (4.1–4.5 + 4.5a) — §12 row 4 acceptance pending on Windows |
 | Stage 5 — taskbar buttons | ✅ ACCEPTED on Win11 — 5a dock buttons + 5b gap overlay (pills-in-gap, event re-measure, single-host dock fallback); all 5 visual checks pass |
-| Profiler (parallel workstream) | 🟡 consumer P.2–P.4 code complete + builds green; P.1 shell emit not done — see `docs/plans/profiler.md` |
+| Profiler (parallel workstream) | 🟡 P.1 partial — `Paint` + `FanActivateLatency` wired, `AppBarNegotiate` dropped (dead, AppBar gone); consumer P.2–P.4 code complete + builds green; runtime verify on Windows pending — see `docs/plans/profiler.md` |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
 **TOP PRIORITY next session: RUNTIME-VERIFY the overlay-instability fix on Windows (code done 2026-07-05, see
@@ -50,6 +50,9 @@ when gap tight; NO icon render exists today — medium; touches Renderer DrawBut
 + overlay). Bubbles still deferred (need UpdateLayeredWindow alpha rework vs current LWA_COLORKEY). All Windows
 visual checks still pending (see below): NEW = slate gradient look + `theme=matte|steel` live switch; F11/video
 fullscreen hides pills+chips; right-click chip/pill or Ctrl+Alt+Shift+Q quits.**
+**Meanwhile (non-Windows sessions, can't runtime-verify the above): profiler P.1 workstream progressed —
+see 2026-07-08 session log entry. Remaining P.1 sites (`WinEventCallback`, `UiaSnapshot`, `StoreUpdate`,
+`LauncherAction`) are one-liners, fair game for a non-Windows session same as this one.**
 Active workstream: **taskbar-chip rework** — kill the dock, put minimized-window chips in the taskbar gap
 (plan: `~/.claude/plans/dreamy-stirring-walrus.md`; feasibility: `docs/research/taskbar-chip-feasibility.md`).
 Stage 1 done: chips (minimized windows, title-only, insertion-ordered) render side-by-side in the gap
@@ -113,6 +116,14 @@ Deferred debt:
   must fix (std::atomic<HWND>) before Step 2.3 checkpoint (first worker thread). Also marshal
   SHAppBarMessage call to UI thread.
 - [DPI] Mixed-DPI AppBarSetPos monitor/DPI-source mismatch — defer to multi-monitor stage.
+- [fanactivate-telemetry-blindspot] `FanActivateLatency`'s `outcome=Selected` cannot distinguish a
+  correct-tab activation from a wrong-duplicate-title match (`ActivateTab`'s title-first/fallbackIndex-
+  tiebreak scheme) — confirm passes either way. Telemetry does NOT de-risk deferring the queued RuntimeId-
+  matching fix; don't read a healthy `Selected` rate as proof activation is picking the right tab.
+- [activatetab-complexity] `ActivateTab` (TabReader.cpp) now interleaves UIA gate/retry logic with latency
+  stopwatch bookkeeping (`tTabFoundUs`/`tSelectAttemptUs`/`tConfirmUs`, `Finish()` lambda) — at the edge of
+  rule-6 isolation working against maintainability. Next substantive change to this function should
+  consider extracting the gate loop from the telemetry capture.
 
 **Build note (this machine):** VS2022 Pro's C++ install now works — the
 canonical CLAUDE.md commands (`cmake -B build -G "Visual Studio 17 2022"`,
@@ -146,6 +157,22 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-08 — Profiler P.1 continued (non-Windows session; runtime-verify TOP PRIORITY above still
+  blocked on a Windows session). Wired `TaskbarOverlayWindow::Paint` (`src/TaskbarOverlayWindow.cpp:613`)
+  with `TRACE_EVENT("Paint", duration_us, dirty_w, dirty_h)` — this is the real per-frame paint site now
+  (HostWindow itself is a hidden 1x1 coordinator, never paints). Resolved the open question from the prior
+  session's profiler.md note: dropped `AppBarNegotiate` from the contract entirely — chip-rework Stage 3
+  fully removed the AppBar (rule 4 vacuous), so there is nothing left to negotiate; updated
+  `docs/ARCHITECTURE.md` §10 event table + §12 row P, `profiler/Contract.h`, and `docs/plans/profiler.md`
+  to match. Both targets build clean. Checkpoint burst skipped as inapplicable — no lifetime/exit-path
+  change (AppBar-hygiene lens) and no new threading (threading lens); change is a two-field addition to an
+  existing UI-thread-only paint path, self-reviewed against the FanActivateLatency TRACE_EVENT precedent.
+  Also backfilled this file: the immediately-preceding session (commits 4d226c1/cf07cac/64105a5) landed
+  `src/Trace.h`/`Trace.cpp` (provider + `TRACE_EVENT`/`TRACE_SCOPE` macros, register/unregister in
+  `wWinMain`) and the `FanActivateLatency` call site in `TabReader.cpp::ActivateTab` (outcome +
+  click→restore→tabfound→select→confirm latency chain) but never updated the status board/session log —
+  status board profiler row was stale until this entry. Remaining P.1 sites (`WinEventCallback`,
+  `UiaSnapshot`, `StoreUpdate`, `LauncherAction`) still unwired, each one-liners for a future session.
 - 2026-07-06 — Fan z-order + flicker fixes (branch `dev/fan-icon-flicker-research`, commit 366c0e4). (1) Fan z-order: kSafetyTimer→ReassertVisibility→ApplyGap was re-raising overlay TOPMOST above the fan every 1.5s → pills rendered on top of fan rows in two-row layout. Fix: `m_topSibling` (fan HWND) registered via `SetTopSibling` (called from HostWindow::Create after both windows exist); `RaiseSibling()` re-raises fan above overlay after every overlay TOPMOST re-assert (in ApplyGap fits-branch + ReassertVisibility). (2) ReassertVisibility no-op gate: replaced full `ApplyGap(m_lastGap, false)` with targeted check — if shown+healthy, `SetWindowPos(SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_NOREDRAW)` + RaiseSibling (no repaint); if shown+empty, `ShowWindow(SW_HIDE)` (self-heal). Eliminates the 1.5s periodic repaint flicker. (3) Double-buffer `Paint()`: render chips+pills into a memory DC (CreateCompatibleDC/CreateCompatibleBitmap + null-guard), BitBlt once — eliminates colorkey flash-through frame. (4) `bErase=FALSE` in InvalidateRect (semantically correct; WM_ERASEBKGND=1 already suppressed). Inspector burst (threading + AppBar-hygiene) → adjudicator MAY PROCEED. GDI null-guard applied inline. Build clean (both targets). Runtime/visual verify pending on Windows. Research: Opus confirmed items 1–3 of the flicker strategy apply; item 2 (ResolveActiveTab) skipped — no active-chip concept exists; VisualState enum skipped — Store already commit-before-invalidate. No icon rendering exists yet (ButtonStyle::Icon parsed but DrawButton ignores it — dead weight until Feature A implemented).
 
 - 2026-07-05 — **Zero-latency fullscreen suppression restored (user rejected the 1.5s-poll trade); bug memory

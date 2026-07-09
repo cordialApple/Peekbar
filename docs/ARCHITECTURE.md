@@ -341,8 +341,7 @@ Instrumented events (grows with the stages):
 
 | Event | Fields | Introduced with |
 |---|---|---|
-| `AppBarNegotiate` | duration_us, edge, resulting rect | Stage 1 |
-| `Paint` | duration_us, dirty w×h | Stage 1 |
+| `Paint` | duration_us, dirty w×h | Stage 1 (now `TaskbarOverlayWindow::Paint`, chip-rework killed the AppBar dock) |
 | `WinEventCallback` | event id, hwnd (rate observable) | Stage 2 |
 | `UiaSnapshot` | duration_us, hwnd, tab_count, hr | Stage 3 |
 | `StoreUpdate` | tracked_windows, total_tabs | Stages 3–4 |
@@ -417,7 +416,7 @@ profiler/                   shell_profiler — separate tool, never bundled
 | 4 | Open 3 browser windows (mixed Chrome + Edge), minimize all → 3 staggered cards. Hover → fan. Click card #2 → exactly that window restores. |
 | 5a | Configure a URL button + a shortcut button → both render in the dock; clicks perform the actions; restart the tool → buttons persist. |
 | 5b | Buttons appear in the taskbar's empty region; open 15 apps → overlay yields space to the growing task list; click empty taskbar space outside a button → normal taskbar behavior. |
-| P | Run shell + `shell_profiler` → live event table shows `AppBarNegotiate`/`Paint` timings; kill profiler → shell unaffected; delete profiler binary → shell runs identically. |
+| P | Run shell + `shell_profiler` → live event table shows `Paint`/`FanActivateLatency` timings; kill profiler → shell unaffected; delete profiler binary → shell runs identically. |
 
 ## 13. Deployment & permanence — the "run as a Windows service" goal
 

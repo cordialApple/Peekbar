@@ -13,13 +13,16 @@ the provider name `BrowserShellOs.Perf` and the event/field names in §10.
 
 - P.1 — 🟡 partial. `src/Trace.h`/`Trace.cpp` land the provider (name-derived
   GUID pinned to match `ProviderGuidFromName`), `TRACE_EVENT`/`TRACE_SCOPE`
-  macros, register/unregister bracketed in `wWinMain` via `TraceGuard`. First
-  call site wired: `FanActivateLatency` (fan click → tab-visible latency
-  chain, see ARCHITECTURE §10). Stage-1 sites (`AppBarNegotiate`, `Paint`)
-  still unwired — pending, since Stage 3 (rule 4 now vacuous, no AppBar) means
-  `AppBarNegotiate` may not apply as originally scoped; revisit when doing the
-  rest of P.1. Runtime verification (wpr/traceview showing the event fire)
-  pending on Windows.
+  macros, register/unregister bracketed in `wWinMain` via `TraceGuard`. Two
+  call sites wired: `FanActivateLatency` (fan click → tab-visible latency
+  chain) and `Paint` (`TaskbarOverlayWindow::Paint`, duration_us + dirty_w/
+  dirty_h). `AppBarNegotiate` DROPPED from the contract — chip-rework Stage 3
+  killed the AppBar dock entirely (rule 4 now vacuous), so there is nothing
+  left to negotiate; ARCHITECTURE §10 and `profiler/Contract.h` updated to
+  match. Remaining Stage-2/3/4/5 sites (`WinEventCallback`, `UiaSnapshot`,
+  `StoreUpdate`, `LauncherAction`) still unwired — each is one-line, do them
+  as ordinary per-stage duty (see below), not a P.1 blocker. Runtime
+  verification (wpr/traceview showing events fire) pending on Windows.
 - P.2 — ✅ code complete, builds green. Real-time session + name-derived GUID +
   TDH decode. GUID `{C943A625-2D01-532A-B9E9-19613974D9AD}` verified against the
   .NET EventSource reference algorithm. Live decode from the shell pending P.1 +
@@ -34,11 +37,14 @@ the provider name `BrowserShellOs.Perf` and the event/field names in §10.
 **Build:** `src/Trace.h`: `TRACELOGGING_DEFINE_PROVIDER` for
 `BrowserShellOs.Perf`, register/unregister in `wWinMain`, and two macros —
 `TRACE_EVENT(name, fields...)` and `TRACE_SCOPE(name)` (RAII QPC timer that
-emits duration_us on scope exit). Instrument Stage-1 sites: AppBar
-negotiation (`AppBarNegotiate`) and `WM_PAINT` (`Paint`).
+emits duration_us on scope exit). Instrumented: `TaskbarOverlayWindow::Paint`
+(`Paint`, duration_us + dirty_w/dirty_h) and the fan-activate chain
+(`FanActivateLatency`, see ARCHITECTURE §10). No AppBar site — chip-rework
+Stage 3 removed the AppBar dock, so `AppBarNegotiate` was dropped from the
+contract rather than wired to nothing.
 
 **Checkpoint:** shell builds and behaves identically; capture with
-`wpr -start GeneralProfile` or `traceview`/`tracelog` shows the two events
+`wpr -start GeneralProfile` or `traceview`/`tracelog` shows both events
 firing. Binary size delta and idle CPU delta ≈ 0.
 
 ## Step P.2 — Profiler skeleton: real-time ETW session
