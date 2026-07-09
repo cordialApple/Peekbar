@@ -500,11 +500,17 @@ void TabReader::WorkerLoop()
         {
             if (req.kind == ReqKind::Snapshot)
             {
+                const long long tStartUs = trace::NowUs();
                 std::vector<Tab> tabs;
                 if (automation)
                     tabs = SnapshotTabs(automation.Get(), req.hwnd);
 
                 const bool failed = tabs.empty();
+                TRACE_EVENT("UiaSnapshot",
+                    TraceLoggingInt64(trace::NowUs() - tStartUs, "duration_us"),
+                    TraceLoggingPointer(req.hwnd, "hwnd"),
+                    TraceLoggingInt32(static_cast<int32_t>(tabs.size()), "tab_count"),
+                    TraceLoggingInt32(automation ? (failed ? E_FAIL : S_OK) : E_HANDLE, "hr"));
                 auto* payload = new TabSnapshot{ req.hwnd, std::move(tabs), failed };
                 if (!PostMessageW(m_dockHwnd, m_snapshotMsg,
                                   reinterpret_cast<WPARAM>(req.hwnd),

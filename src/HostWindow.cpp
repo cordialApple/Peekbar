@@ -354,6 +354,9 @@ void CALLBACK HostWindow::WinEventProc(HWINEVENTHOOK hHook, DWORD event, HWND hw
         return;
     }
     if (idObject != OBJID_WINDOW) return;
+    TRACE_EVENT("WinEventCallback",
+        TraceLoggingUInt32(event, "event_id"),
+        TraceLoggingPointer(hwnd, "hwnd"));
     PostMessageW(s_dockHwnd, kWindowEventMsg,
                  static_cast<WPARAM>(event), reinterpret_cast<LPARAM>(hwnd));
 }

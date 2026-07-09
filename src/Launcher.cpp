@@ -1,4 +1,5 @@
 #include "Launcher.h"
+#include "Trace.h"
 #include <shlobj.h>
 #include <cstdarg>
 #include <cstring>
@@ -77,6 +78,17 @@ namespace
         if (s == L"shortcut") { out = ButtonAction::Shortcut; return true; }
         if (s == L"command")  { out = ButtonAction::Command;  return true; }
         return false;
+    }
+
+    const wchar_t* ActionName(ButtonAction a)
+    {
+        switch (a)
+        {
+        case ButtonAction::Url:      return L"url";
+        case ButtonAction::Shortcut: return L"shortcut";
+        case ButtonAction::Command:  return L"command";
+        }
+        return L"unknown";
     }
 }
 
@@ -169,16 +181,21 @@ void Launcher::Execute(const Button& b) const
     const ButtonAction action = b.action;
     std::wstring target = b.target;
     std::thread([action, target = std::move(target)]() mutable {
+        const long long tStartUs = trace::NowUs();
         // MTA, not STA: this worker runs no message pump, so an STA (which requires
         // one) could hang a DDE-style shell handler. Balance CoUninitialize only on
         // a successful init (RPC_E_CHANGED_MODE must not be uninitialized).
         const HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        HRESULT actionHr = S_OK;
         switch (action)
         {
         case ButtonAction::Url:
         case ButtonAction::Shortcut:
-            ShellExecuteW(nullptr, L"open", target.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        {
+            const HINSTANCE ret = ShellExecuteW(nullptr, L"open", target.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            if (reinterpret_cast<INT_PTR>(ret) <= 32) actionHr = HRESULT_FROM_WIN32(GetLastError());
             break;
+        }
         case ButtonAction::Command:
         {
             STARTUPINFOW si = { sizeof(si) };
@@ -189,9 +206,17 @@ void Launcher::Execute(const Button& b) const
                 CloseHandle(pi.hThread);
                 CloseHandle(pi.hProcess);
             }
+            else
+            {
+                actionHr = HRESULT_FROM_WIN32(GetLastError());
+            }
             break;
         }
         }
         if (SUCCEEDED(hr)) CoUninitialize();
+        TRACE_EVENT("LauncherAction",
+            TraceLoggingWideString(ActionName(action), "action"),
+            TraceLoggingInt64(trace::NowUs() - tStartUs, "duration_us"),
+            TraceLoggingInt32(actionHr, "hr"));
     }).detach();
 }

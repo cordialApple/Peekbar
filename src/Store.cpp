@@ -1,5 +1,16 @@
 #include "Store.h"
+#include "Trace.h"
 #include <algorithm>
+#include <numeric>
+
+void Store::TraceUpdate() const
+{
+    const long long totalTabs = std::accumulate(m_windows.begin(), m_windows.end(), 0LL,
+        [](long long sum, const auto& kv) { return sum + static_cast<long long>(kv.second.tabs.size()); });
+    TRACE_EVENT("StoreUpdate",
+        TraceLoggingInt64(static_cast<long long>(m_windows.size()), "tracked_windows"),
+        TraceLoggingInt64(totalTabs, "total_tabs"));
+}
 
 void Store::Set(HWND hwnd, std::wstring title)
 {
@@ -7,7 +18,11 @@ void Store::Set(HWND hwnd, std::wstring title)
     auto& w   = m_windows[hwnd];
     w.hwnd    = hwnd;
     w.title   = std::move(title);
-    if (isNew) m_order.push_back(hwnd);
+    if (isNew)
+    {
+        m_order.push_back(hwnd);
+        TraceUpdate();
+    }
 }
 
 void Store::SetMinimized(HWND hwnd, bool minimized)
@@ -24,6 +39,7 @@ void Store::SetTabs(HWND hwnd, std::vector<Tab> tabs)
     {
         it->second.tabs      = std::move(tabs);
         it->second.tabsStale = false;
+        TraceUpdate();
     }
 }
 
@@ -38,6 +54,7 @@ void Store::Remove(HWND hwnd)
 {
     m_windows.erase(hwnd);
     m_order.erase(std::remove(m_order.begin(), m_order.end(), hwnd), m_order.end());
+    TraceUpdate();
 }
 
 bool Store::Has(HWND hwnd) const

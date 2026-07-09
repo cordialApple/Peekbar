@@ -37,6 +37,8 @@ public:
     const std::vector<HWND>& Ordered() const { return m_order; }
 
 private:
+    void TraceUpdate() const;
+
     std::unordered_map<HWND, TrackedWindow> m_windows;
     std::vector<HWND>                       m_order;
 };
