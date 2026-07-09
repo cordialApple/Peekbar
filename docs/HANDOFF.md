@@ -41,42 +41,31 @@ performance over ETW.
 visible-but-empty overlay under terminal churn; fullscreen suppression latency OK. Former top priority, now
 closed.**
 
-**Next action: restore-to-tabfound bottleneck LOCALIZED to a single call — root cause confirmed,
-fix not yet attempted. Full chain this session: instrumented `ActivateTab` (67e90b4) → live capture (19 real
-fan-clicks, elevated `shell_profiler --raw`) → Opus-reviewed analysis. Result, decisively: `gate2_attempts` was
-exactly 1 in all 19 samples (zero retries, ever) and `us_gate2_wait` ≈ `us_first_walk` to within 12µs on a
-~283ms average (78% of the ~541ms total) — the two independently-bracketed timestamps agreeing that tightly
-is the proof. This kills the "retry churn" hypothesis outright: the cost is the wall-clock duration of ONE
-`FindLiveTabItems` call (`TabReader.cpp`), not polling overhead. Gate 1 (window-visible wait) is real but
-secondary (~15% of total, never dominant) and its `us_gate1_wait` field is known-conflated with worker-queue
-dwell time (caveat, not yet split out — deprioritized, see debt below). Data + breakdown visualized in an
-artifact (private, not in the repo — regenerate from `fan_raw.txt`-style capture if lost).
-**NEXT STEP (Opus's explicit recommendation, do not skip; plan reviewed by Opus a 2nd time, verdict below):
-one more narrow instrumentation pass BEFORE any fix** — split the ~283ms `FindLiveTabItems` call
-(`TabReader.cpp`) into its internal cross-process UIA operations. Opus's reviewed FINAL field set (5 new
-fields, append-only after the existing ones): `us_element_from_handle`, `us_findall_tabctrls` (the
-`elem->FindAll(TreeScope_Descendants, tabCtrlCond)` full-window-subtree walk — prime suspect),
-`us_is_inside_document` (the `IsInsideDocument` parent-walk, up to 30 `GetParentElement` COM calls per
-candidate — Opus's REQUIRED CORRECTION to my first draft: do NOT fold this into the tabitems bucket, it's a
-separate candidate answer to the same fork this pass exists to settle), `us_findall_tabitems` (the
-`FindAllBuildCache` call), and `tabctrl_candidates` (free `ctrlCount`, disambiguates the accumulated buckets —
-e.g. high `us_is_inside_document` + `tabctrl_candidates>1` = paying to reject web-content candidates before
-the real TabControl, pointing at candidate culling as the fix instead of guided descent). Accumulate op-3/op-4
-across all loop iterations (1-2 tabCtrl candidates typically tried per call) into one scalar each — do NOT
-track per-candidate vectors. `us_is_inside_document` accrues on every iteration (including `continue`d ones);
-`us_findall_tabitems` only when `FindAllBuildCache` actually runs — that asymmetry is exactly why the two
-can't be folded together. Report from the winning call only, consistent with existing `tLastWalkUs`. Capture
-~15-20 more real clicks after landing this. **Only after that split should a fix be chosen**: if `FindAll(Descendants)` on the
-TabControl search dominates → try guided descent (`TreeScope_Children` + manual descent toward the known
-"Tab bar" pane) instead of blanket `Descendants` — safe, no caching, stays a pure re-walk, isolated in
-`TabReader.cpp` (rule 6). If instead Chromium's lazy tree-rebuild cost is paid regardless of query scope →
-narrowing won't help; the fallback is perceived-latency (instant "restoring…" UI state) rather than the raw
-number. **Caching the TabControl element across minimize/restore was explicitly rejected as a first move** —
-Opus's conclusion: a stale post-restore UIA element can return silently-wrong data (S_OK, no thrown exception,
-no FAILED(hr)) rather than cleanly erroring, which risks the exact "select the wrong tab silently" bug
-`ActivateTab`'s design was already written to prevent; only worth revisiting if guided descent proves
-insufficient, and only with explicit staleness validation added. PowerBI model can be extended the same way
-once more segment data exists.
+**Next action: 5-field `FindLiveTabItems` split LANDED (this session) — next is a live capture on Windows,
+then pick the fix.** Opus's recommended instrumentation pass (see prior entries) is now code: `WalkTiming`
+struct in `TabReader.cpp` times the winning gate-2 `FindLiveTabItems` call's internals and appends 5 fields
+to `FanActivateLatency` (after all pre-existing ones, positional-decode-safe) — `us_element_from_handle`,
+`us_findall_tabctrls` (prime suspect — the full-subtree TabControl search), `us_is_inside_document`
+(accrued across every candidate tried, including `continue`d ones), `us_findall_tabitems` (accrued only when
+`FindAllBuildCache` actually runs), `tabctrl_candidates`. `Contract.h` + `ARCHITECTURE.md` §10 updated to
+match. Inspector (threading-rule-violations, the only applicable lens — no lifetime/exit-path or paint/sizing
+code touched) → clean → adjudicator MAY PROCEED. Simplifier ran clean (no changes — diff already matches the
+file's existing timing-idiom conventions). Both targets build green.
+**NEXT STEP: capture ~15-20 more real fan-clicks on Windows** (elevated `shell_profiler --raw > file.txt`,
+same method as the 19-click capture — remember `--csv` can't show these per-event fields, only `--raw` can).
+Read the new fields to settle the fork Opus set this pass up for: if `us_findall_tabctrls` dominates →
+`FindAll(Descendants)` on the TabControl search is the cost → try guided descent (`TreeScope_Children` +
+manual descent toward the known "Tab bar" pane) instead of blanket `Descendants`, isolated in `TabReader.cpp`
+(rule 6). If `us_is_inside_document` dominates with `tabctrl_candidates>1` → cost is rejecting web-content
+candidates before the real TabControl → candidate culling is the fix instead. If neither field explains the
+~283ms and the cost is spread/unaccounted → Chromium's lazy tree-rebuild cost is likely paid regardless of
+query scope → narrowing won't help; fall back to perceived-latency UI (instant "restoring…" state) rather
+than chasing the raw number further. **Only after this capture should a fix be chosen** — do not guess from
+the code alone. **Caching the TabControl element across minimize/restore stays explicitly rejected** — a
+stale post-restore UIA element can return silently-wrong data (S_OK, no thrown exception, no FAILED(hr)),
+risking the exact "select the wrong tab silently" bug `ActivateTab` already guards against; only revisit if
+guided descent proves insufficient, and only with explicit staleness validation added. PowerBI model can be
+extended the same way once more segment data exists.
 Feature A (pill icon-fallback) is parked, code-complete, on branch `feat/pill-icon-fallback` (69064ee/bfb1d54,
 based off this branch) — not merged, picked up whenever.
 Tiny doc polish DONE this session (ef2f51c): CLAUDE.md rule 4 + project blurb reworded, ARCHITECTURE.md's
@@ -203,6 +192,19 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-08 — Landed Opus's 5-field `FindLiveTabItems` split (`TabReader.cpp`): new `WalkTiming` struct
+  times `ElementFromHandle`, the TabControl `FindAll(Descendants)` (prime suspect), the per-candidate
+  `IsInsideDocument` parent-walk (accrued over every candidate incl. `continue`d ones), the TabItem
+  `FindAllBuildCache` (accrued only when it runs), and a `tabctrl_candidates` count — all from the winning
+  gate-2 call only, mirroring the existing `tLastWalkUs` overwrite pattern. Appended to `FanActivateLatency`
+  strictly after all pre-existing fields (positional TDH decode preserved); `Contract.h` + `ARCHITECTURE.md`
+  §10 updated to match. Threading-rule-violations inspector (only applicable lens — diagnostics-only diff,
+  no lifetime/exit-path or paint/sizing code touched) → clean → adjudicator MAY PROCEED. Simplifier ran clean
+  on this new diff (found nothing to change — matches the file's established timing idiom); does NOT resolve
+  the still-open `activatetab-complexity` debt below, which is about the earlier already-committed gate1/gate2
+  diff, a separate simplifier target. Both targets build clean on Windows. Not yet done: an actual live capture with this
+  instrumentation (elevated `shell_profiler --raw`, ~15-20 real fan-clicks) — that's the next session's first
+  move, per the Next-action note above; only after reading those numbers should a fix be chosen.
 - 2026-07-08 — Restore-to-tabfound root cause LOCALIZED (no code changed this entry — analysis only,
   continuing the same-day instrumentation work below). Live capture: 19 real fan-clicks, elevated
   `shell_profiler --raw` redirected to a file (`--csv`'s MetricsView can't show per-event fields, only

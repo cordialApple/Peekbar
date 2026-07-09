@@ -188,6 +188,21 @@ static bool IsItemSelected(IUIAutomationElement* item)
     return sel;
 }
 
+// Diagnostic breakdown of one FindLiveTabItems call's internal UIA cost (see
+// activatetab-restore-to-tabfound-bottleneck debt: settles whether the ~283ms
+// gate-2 wait is the TabControl FindAll(Descendants) walk, the per-candidate
+// document-exclusion parent-walk, or the TabItem FindAllBuildCache). The
+// per-candidate fields accumulate across the inner ci loop into one scalar
+// each (1-2 candidates typical) rather than a per-candidate vector.
+struct WalkTiming
+{
+    long long usElementFromHandle = 0;
+    long long usFindAllTabCtrls   = 0;
+    long long usIsInsideDocument  = 0;   // accrues every candidate, incl. continue'd ones
+    long long usFindAllTabItems   = 0;   // accrues only when FindAllBuildCache actually runs
+    int       tabCtrlCandidates   = 0;   // ctrlCount
+};
+
 // Like SnapshotTabs but KEEPS the live TabItem element array (elements are not
 // durable across restore, so activation must re-walk fresh and act immediately).
 // Names/IsSelected are read from a single FindAllBuildCache round trip (mirrors
@@ -198,13 +213,17 @@ static bool IsItemSelected(IUIAutomationElement* item)
 // Returns S_OK with a non-empty array + parallel tabs, or E_FAIL if no tab tree yet.
 static HRESULT FindLiveTabItems(IUIAutomation* automation, HWND hwnd,
                                 ComPtr<IUIAutomationElementArray>& outItems,
-                                std::vector<Tab>& outTabs)
+                                std::vector<Tab>& outTabs,
+                                WalkTiming& timing)
 {
     outItems.Reset();
     outTabs.clear();
+    timing = WalkTiming{};
 
+    long long tStartUs = trace::NowUs();
     ComPtr<IUIAutomationElement> elem;
     if (FAILED(automation->ElementFromHandle(hwnd, &elem)) || !elem) return E_FAIL;
+    timing.usElementFromHandle = trace::NowUs() - tStartUs;
 
     ComPtr<IUIAutomationCacheRequest> cacheReq;
     if (FAILED(automation->CreateCacheRequest(&cacheReq))) return E_FAIL;
@@ -218,12 +237,15 @@ static HRESULT FindLiveTabItems(IUIAutomation* automation, HWND hwnd,
     if (FAILED(automation->CreatePropertyCondition(UIA_ControlTypePropertyId, vt, &tabCtrlCond)))
         return E_FAIL;
 
+    long long tFindCtrlsUs = trace::NowUs();
     ComPtr<IUIAutomationElementArray> tabCtrls;
     if (FAILED(elem->FindAll(TreeScope_Descendants, tabCtrlCond.Get(), &tabCtrls)) || !tabCtrls)
         return E_FAIL;
+    timing.usFindAllTabCtrls = trace::NowUs() - tFindCtrlsUs;
 
     int ctrlCount = 0;
     tabCtrls->get_Length(&ctrlCount);
+    timing.tabCtrlCandidates = ctrlCount;
 
     vt.lVal = UIA_TabItemControlTypeId;
     ComPtr<IUIAutomationCondition> tabItemCond;
@@ -234,12 +256,18 @@ static HRESULT FindLiveTabItems(IUIAutomation* automation, HWND hwnd,
     {
         ComPtr<IUIAutomationElement> tabCtrl;
         if (FAILED(tabCtrls->GetElement(ci, &tabCtrl)) || !tabCtrl) continue;
-        if (IsInsideDocument(automation, tabCtrl.Get())) continue;
+
+        long long tInsideDocUs = trace::NowUs();
+        const bool insideDoc = IsInsideDocument(automation, tabCtrl.Get());
+        timing.usIsInsideDocument += trace::NowUs() - tInsideDocUs;
+        if (insideDoc) continue;
 
         ComPtr<IUIAutomationElementArray> items;
-        if (FAILED(tabCtrl->FindAllBuildCache(TreeScope_Descendants, tabItemCond.Get(),
-                                               cacheReq.Get(), &items)) || !items)
-            continue;
+        long long tFindItemsUs = trace::NowUs();
+        const HRESULT hrItems = tabCtrl->FindAllBuildCache(TreeScope_Descendants, tabItemCond.Get(),
+                                                            cacheReq.Get(), &items);
+        timing.usFindAllTabItems += trace::NowUs() - tFindItemsUs;
+        if (FAILED(hrItems) || !items) continue;
 
         int count = 0;
         items->get_Length(&count);
@@ -307,6 +335,9 @@ TabActivateResult ActivateTab(IUIAutomation* automation, HWND hwnd,
     long long tReadyUs = 0;
     int gate1Attempts = 0, gate2Attempts = 0;
     long long tFirstWalkUs = -1, tLastWalkUs = -1;
+    // Reported from the winning call only (overwritten every gate-2 iteration,
+    // same pattern as tLastWalkUs — the last write before a break IS the winner's).
+    WalkTiming lastWalkTiming;
     auto Finish = [&]() -> TabActivateResult
     {
         const long long tEndUs = tConfirmUs ? tConfirmUs : trace::NowUs();
@@ -322,7 +353,12 @@ TabActivateResult ActivateTab(IUIAutomation* automation, HWND hwnd,
             TraceLoggingInt64((tTabFoundUs && tReadyUs) ? tTabFoundUs - tReadyUs : -1, "us_gate2_wait"),
             TraceLoggingInt32(gate2Attempts, "gate2_attempts"),
             TraceLoggingInt64(tFirstWalkUs, "us_first_walk"),
-            TraceLoggingInt64(tLastWalkUs, "us_last_walk"));
+            TraceLoggingInt64(tLastWalkUs, "us_last_walk"),
+            TraceLoggingInt64(lastWalkTiming.usElementFromHandle, "us_element_from_handle"),
+            TraceLoggingInt64(lastWalkTiming.usFindAllTabCtrls, "us_findall_tabctrls"),
+            TraceLoggingInt64(lastWalkTiming.usIsInsideDocument, "us_is_inside_document"),
+            TraceLoggingInt64(lastWalkTiming.usFindAllTabItems, "us_findall_tabitems"),
+            TraceLoggingInt32(lastWalkTiming.tabCtrlCandidates, "tabctrl_candidates"));
         return std::move(r);
     };
 
@@ -352,10 +388,12 @@ TabActivateResult ActivateTab(IUIAutomation* automation, HWND hwnd,
     {
         ++gate2Attempts;
         const long long tWalkStartUs = trace::NowUs();
-        const bool walkOk = SUCCEEDED(FindLiveTabItems(automation, hwnd, items, tabs)) && items && !tabs.empty();
+        WalkTiming walkTiming;
+        const bool walkOk = SUCCEEDED(FindLiveTabItems(automation, hwnd, items, tabs, walkTiming)) && items && !tabs.empty();
         const long long walkUs = trace::NowUs() - tWalkStartUs;
         if (tFirstWalkUs < 0) tFirstWalkUs = walkUs;
         tLastWalkUs = walkUs;
+        lastWalkTiming = walkTiming;
         if (walkOk) { haveTree = true; break; }
         if (CancelableSleep(stop, kPollIntervalMs)) return Finish();
     }
