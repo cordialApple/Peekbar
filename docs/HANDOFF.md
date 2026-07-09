@@ -37,12 +37,9 @@ performance over ETW.
 | Profiler (parallel workstream) | 🟡 P.1 partial — `Paint` + `FanActivateLatency` wired, `AppBarNegotiate` dropped (dead, AppBar gone); consumer P.2–P.4 code complete + builds green; runtime verify on Windows pending — see `docs/plans/profiler.md` |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
-**TOP PRIORITY next session: RUNTIME-VERIFY the overlay-instability fix on Windows (code done 2026-07-05, see
-session log). Repro that previously broke it: rapidly open/close a terminal (taskbar churn) with a browser
-minimized → confirm NO AV crash and NO stuck visible-but-empty overlay. Also re-check in-place fullscreen (F11/
-video) hides pills+chips with ZERO perceptible latency (restored via a set-once global fg LOCATIONCHANGE hook —
-user rejected the 1.5s-poll latency). NOTE the re-added fg hook carries some risk the AV returns; if it does,
-the set-once global hook is the new suspect (not the old per-fg re-scope). Bug memory already closed per user.**
+**RESOLVED 2026-07-08 (user-confirmed on Windows): overlay-instability fix holds — no AV crash, no stuck
+visible-but-empty overlay under terminal churn; fullscreen suppression latency OK. Former top priority, now
+closed.**
 
 **Next action: chip-rework Stage 4 CODE-COMPLETE — dead-code purge + `DockWindow`→`HostWindow` rename (aa84dc1) + overlay persistence/perf hardening (a3d8cbc) + fan polish B/C (bd645fd) all committed. Remaining tiny doc polish: reword CLAUDE.md rule 4 (AppBar hygiene → "no AppBar registered; ABM_GETSTATE query-only") + ARCHITECTURE "dock strip" mentions (deferred, low-pri; rule 4 still valid vacuously). DONE since: quit-affordance fix, D (themes+gradient), fullscreen-in-place suppression fix. NEXT FEATURE: A =
 pill icon-fallback, icons extracted from each button's target exe (shrink pill→~28px icon square before dropping
