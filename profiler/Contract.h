@@ -17,10 +17,19 @@
 //   StoreUpdate       tracked_windows, total_tabs
 //   LauncherAction    action type, duration_us, hr
 //   FanActivateLatency  outcome, us_click_to_restore, us_restore_to_tabfound,
-//                       us_tabfound_to_select, us_select_to_confirm, duration_us
+//                       us_tabfound_to_select, us_select_to_confirm, duration_us,
+//                       us_gate1_wait, gate1_attempts, us_gate2_wait, gate2_attempts,
+//                       us_first_walk, us_last_walk
 //                       (fan click -> tab-visible latency chain; duration_us
 //                       spans click to activation-confirmed, a proxy for first
-//                       visible frame, not a true paint signal)
+//                       visible frame, not a true paint signal. The gate1/gate2/
+//                       walk fields split us_restore_to_tabfound diagnostically —
+//                       gate1 = window-visible wait, gate2 = UIA tab-tree-walkable
+//                       wait, first/last_walk = duration of the first vs. most
+//                       recent FindLiveTabItems call within gate 2. Fields are
+//                       appended after the pre-existing ones — TDH decodes this
+//                       event positionally, so field ORDER must stay append-only;
+//                       never reorder or insert ahead of existing fields.)
 
 namespace contract {
 

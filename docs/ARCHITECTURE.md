@@ -346,7 +346,7 @@ Instrumented events (grows with the stages):
 | `UiaSnapshot` | duration_us, hwnd, tab_count, hr | Stage 3 |
 | `StoreUpdate` | tracked_windows, total_tabs | Stages 3–4 |
 | `LauncherAction` | action type, duration_us, hr | Stage 5 |
-| `FanActivateLatency` | outcome, us_click_to_restore, us_restore_to_tabfound, us_tabfound_to_select, us_select_to_confirm, duration_us | Stage 4 (fan click→tab-visible latency chain) |
+| `FanActivateLatency` | outcome, us_click_to_restore, us_restore_to_tabfound, us_tabfound_to_select, us_select_to_confirm, duration_us, us_gate1_wait, gate1_attempts, us_gate2_wait, gate2_attempts, us_first_walk, us_last_walk | Stage 4 (fan click→tab-visible latency chain; gate1/gate2/walk fields diagnostically split `us_restore_to_tabfound` — see `activatetab-restore-to-tabfound-bottleneck` debt in HANDOFF.md. Appended after the pre-existing fields — TDH decodes positionally, so field order must stay append-only.) |
 
 ### The profiler: `shell_profiler` (separate software)
 A standalone console tool under `profiler/` (own CMake target; may later move

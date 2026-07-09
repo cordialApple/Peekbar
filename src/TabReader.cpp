@@ -298,6 +298,15 @@ TabActivateResult ActivateTab(IUIAutomation* automation, HWND hwnd,
     TabActivateResult r{ hwnd, ActivateOutcome::Failed, -1, {} };
 
     long long tTabFoundUs = 0, tSelectAttemptUs = 0, tConfirmUs = 0;
+    // Diagnostic split of us_restore_to_tabfound (see activatetab-restore-to-tabfound-
+    // bottleneck debt): which gate the wait is in, how many polls it took, and whether
+    // the UIA walk itself is slow (vs. many fast-failing polls while genuinely not
+    // ready yet). tFirstWalkUs/tLastWalkUs bracket the SAME call each iteration —
+    // first vs. last tells apart "walk is slow throughout" from "walk is slow only
+    // once the tree is mid-rebuild".
+    long long tReadyUs = 0;
+    int gate1Attempts = 0, gate2Attempts = 0;
+    long long tFirstWalkUs = -1, tLastWalkUs = -1;
     auto Finish = [&]() -> TabActivateResult
     {
         const long long tEndUs = tConfirmUs ? tConfirmUs : trace::NowUs();
@@ -307,7 +316,13 @@ TabActivateResult ActivateTab(IUIAutomation* automation, HWND hwnd,
             TraceLoggingInt64(tTabFoundUs ? tTabFoundUs - tRestoreUs : -1, "us_restore_to_tabfound"),
             TraceLoggingInt64(tSelectAttemptUs ? tSelectAttemptUs - tTabFoundUs : -1, "us_tabfound_to_select"),
             TraceLoggingInt64(tConfirmUs ? tConfirmUs - tSelectAttemptUs : -1, "us_select_to_confirm"),
-            TraceLoggingInt64(tEndUs - tClickUs, "duration_us"));
+            TraceLoggingInt64(tEndUs - tClickUs, "duration_us"),
+            TraceLoggingInt64(tReadyUs ? tReadyUs - tRestoreUs : -1, "us_gate1_wait"),
+            TraceLoggingInt32(gate1Attempts, "gate1_attempts"),
+            TraceLoggingInt64((tTabFoundUs && tReadyUs) ? tTabFoundUs - tReadyUs : -1, "us_gate2_wait"),
+            TraceLoggingInt32(gate2Attempts, "gate2_attempts"),
+            TraceLoggingInt64(tFirstWalkUs, "us_first_walk"),
+            TraceLoggingInt64(tLastWalkUs, "us_last_walk"));
         return std::move(r);
     };
 
@@ -320,19 +335,28 @@ TabActivateResult ActivateTab(IUIAutomation* automation, HWND hwnd,
     bool ready = false;
     while (IsWindow(hwnd) && NowMs() - t0 < kReadyTimeoutMs)
     {
+        ++gate1Attempts;
         if (IsWindowVisible(hwnd) && !IsIconic(hwnd)) { ready = true; break; }
         if (CancelableSleep(stop, kPollIntervalMs)) return Finish();
     }
     if (!ready) return Finish();
+    tReadyUs = trace::NowUs();
 
-    // Gate 2: tab tree rebuilt (async after restore).
+    // Gate 2: tab tree rebuilt (async after restore). Each iteration calls
+    // FindLiveTabItems exactly once, timed, before the success check — so the walk
+    // is never called twice and the sleep-on-failure below is untouched.
     ComPtr<IUIAutomationElementArray> items;
     std::vector<Tab> tabs;
     bool haveTree = false;
     while (NowMs() - t0 < kTreeTimeoutMs)
     {
-        if (SUCCEEDED(FindLiveTabItems(automation, hwnd, items, tabs)) && items && !tabs.empty())
-        { haveTree = true; break; }
+        ++gate2Attempts;
+        const long long tWalkStartUs = trace::NowUs();
+        const bool walkOk = SUCCEEDED(FindLiveTabItems(automation, hwnd, items, tabs)) && items && !tabs.empty();
+        const long long walkUs = trace::NowUs() - tWalkStartUs;
+        if (tFirstWalkUs < 0) tFirstWalkUs = walkUs;
+        tLastWalkUs = walkUs;
+        if (walkOk) { haveTree = true; break; }
         if (CancelableSleep(stop, kPollIntervalMs)) return Finish();
     }
     if (!haveTree) return Finish();
