@@ -41,12 +41,24 @@ performance over ETW.
 visible-but-empty overlay under terminal churn; fullscreen suppression latency OK. Former top priority, now
 closed.**
 
-**Next action: chip-rework Stage 4 CODE-COMPLETE — dead-code purge + `DockWindow`→`HostWindow` rename (aa84dc1) + overlay persistence/perf hardening (a3d8cbc) + fan polish B/C (bd645fd) all committed. Remaining tiny doc polish: reword CLAUDE.md rule 4 (AppBar hygiene → "no AppBar registered; ABM_GETSTATE query-only") + ARCHITECTURE "dock strip" mentions (deferred, low-pri; rule 4 still valid vacuously). DONE since: quit-affordance fix, D (themes+gradient), fullscreen-in-place suppression fix. NEXT FEATURE: A =
-pill icon-fallback, icons extracted from each button's target exe (shrink pill→~28px icon square before dropping
-when gap tight; NO icon render exists today — medium; touches Renderer DrawButton/GapChipLayout + new icon cache
-+ overlay). Bubbles still deferred (need UpdateLayeredWindow alpha rework vs current LWA_COLORKEY). All Windows
-visual checks still pending (see below): NEW = slate gradient look + `theme=matte|steel` live switch; F11/video
-fullscreen hides pills+chips; right-click chip/pill or Ctrl+Alt+Shift+Q quits.**
+**Next action: restore-to-tabfound latency instrumentation landed (67e90b4) — `ActivateTab`
+(`src/TabReader.cpp`) now splits the previously-lumped `us_restore_to_tabfound` (452ms avg, ~74–75% of the
+~602ms fan-activate total, per the 2026-07-08 live capture) into `us_gate1_wait`/`gate1_attempts` (window-
+visible wait), `us_gate2_wait`/`gate2_attempts` (UIA tab-tree-walkable wait), and `us_first_walk`/`us_last_walk`
+(duration of the first vs. most recent `FindLiveTabItems` call within gate 2) — all new sibling fields on the
+existing `FanActivateLatency` TraceLogging event, diagnostics only, zero behavior change. Design reviewed by
+Opus twice (root-cause research, then the exact instrumentation plan) before writing code, per user request
+on this specific investigation — both passes plus an inspector + adjudicator round on the actual diff came
+back clean (one cosmetic field-order nit fixed). Both targets build clean. **NEXT STEP: run a fresh live
+`shell_profiler --raw` capture (elevated) with real fan-activate clicks** — the new fields will tell us
+whether the 452ms is (a) one/two genuinely slow UIA walks, (b) many fast-failing retries piling up while
+genuinely not ready (in which case gate2_attempts is high but first/last_walk are both fast), (b-malign) retries
+where the walk itself gets slow only once the tree is mid-rebuild (first_walk fast, last_walk slow), or (c) Gate 1
+(window-visible wait) is secretly a contributor nobody's checked yet. Only after that capture should a fix be
+attempted — do not guess. PowerBI model can be extended the same way as the current one once this data exists.
+Feature A (pill icon-fallback) is parked, code-complete, on branch `feat/pill-icon-fallback` (69064ee/bfb1d54,
+based off this branch) — not merged, picked up whenever. Also still outstanding from chip-rework Stage 4: tiny
+doc polish (reword CLAUDE.md rule 4 wording, deferred/low-pri) and all Windows visual checks below.**
 **Meanwhile (non-Windows sessions, can't runtime-verify the above): profiler P.1 workstream progressed —
 see 2026-07-08 session log entry. Remaining P.1 sites (`WinEventCallback`, `UiaSnapshot`, `StoreUpdate`,
 `LauncherAction`) are one-liners, fair game for a non-Windows session same as this one.**
@@ -164,6 +176,31 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-08 — Restore-to-tabfound latency instrumentation (commit 67e90b4). User flagged this as
+  high-stakes ("check with opus often, we can't get this wrong"), so every decision point went through an
+  Opus pass before code: (1) Opus (win32-scout) research on whether the 452ms/74–75% `us_restore_to_tabfound`
+  cost is one slow UIA walk, retry churn, or COM setup overhead — inconclusive from public docs alone (100–
+  500ms is a known band for Chromium's lazy accessibility-tree rebuild after restore-from-minimized, but too
+  wide to fix blind); recommended instrumenting before touching the fix. (2) Opus review of the exact
+  instrumentation plan caught a real gap: timing only the first Gate-2 retry attempt couldn't distinguish
+  "many fast-failing retries" from "retries that get slow only once the tree is mid-rebuild" — required
+  timing every attempt (first + last, not just first) and restructuring so `FindLiveTabItems` is called
+  exactly once per loop iteration (both applied). Implemented in `ActivateTab` (`src/TabReader.cpp`): new
+  `FanActivateLatency` fields `us_gate1_wait`/`gate1_attempts` (window-visible wait), `us_gate2_wait`/
+  `gate2_attempts` (UIA-tree-walkable wait), `us_first_walk`/`us_last_walk` (duration of first vs. most
+  recent tab-tree walk) — diagnostics only, no behavior change, `us_restore_to_tabfound` kept unchanged for
+  PowerBI-dashboard continuity. Threading/control-flow inspector confirmed both Opus-mandated invariants held
+  in the actual diff (walk called exactly once per iteration; pre-existing `CancelableSleep` byte-identical) →
+  adjudicator MAY PROCEED (one cosmetic field-order nit fixed: new fields now literally appended after all
+  pre-existing ones, matching the "append-only positional decode" doc claim exactly). `profiler/Contract.h` +
+  `docs/ARCHITECTURE.md` §10 updated — no profiler code change needed (TraceLogging is self-describing).
+  Both targets build clean (had to `taskkill` a leftover `browser_shell_os.exe` holding the link lock).
+  **Not yet done: an actual live capture with this instrumentation** — that's the next session's first move,
+  and only after reading those numbers should a real fix be attempted. Also this session: finished Feature A
+  (pill icon-fallback) end-to-end — see its own commits — and parked it on branch `feat/pill-icon-fallback`
+  (not merged) per user request, so it doesn't block this latency work; finished the PowerBI model from the
+  prior session's live capture (sort order, 4 measures, caught and fixed a real ~4x bug in the first draft of
+  `Total Avg Latency (ms)`).
 - 2026-07-08 — First live profiler run + root-cause find for the fan-activate lag. Ran
   `browser_shell_os.exe` + elevated `shell_profiler.exe --csv`/`--raw` together on Windows (first time the
   two have run together — P.2–P.4 were "builds green" only before this). All 6 events fired and decoded;
