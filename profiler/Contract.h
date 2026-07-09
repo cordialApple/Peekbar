@@ -16,6 +16,11 @@
 //   UiaSnapshot       duration_us, hwnd, tab_count, hr
 //   StoreUpdate       tracked_windows, total_tabs
 //   LauncherAction    action type, duration_us, hr
+//   FanActivateLatency  outcome, us_click_to_restore, us_restore_to_tabfound,
+//                       us_tabfound_to_select, us_select_to_confirm, duration_us
+//                       (fan click -> tab-visible latency chain; duration_us
+//                       spans click to activation-confirmed, a proxy for first
+//                       visible frame, not a true paint signal)
 
 namespace contract {
 

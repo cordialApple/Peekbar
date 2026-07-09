@@ -11,10 +11,15 @@ the provider name `BrowserShellOs.Perf` and the event/field names in §10.
 
 ## Status
 
-- P.1 — ⬜ NOT DONE. Shell emits no `BrowserShellOs.Perf` events yet (no
-  `src/Trace.h`, no `TraceLoggingWrite` call sites). Deliberately deferred: the
-  profiler workstream was told to stay in its lane and not touch `src/`. Until
-  P.1 lands the live table shows "no events yet".
+- P.1 — 🟡 partial. `src/Trace.h`/`Trace.cpp` land the provider (name-derived
+  GUID pinned to match `ProviderGuidFromName`), `TRACE_EVENT`/`TRACE_SCOPE`
+  macros, register/unregister bracketed in `wWinMain` via `TraceGuard`. First
+  call site wired: `FanActivateLatency` (fan click → tab-visible latency
+  chain, see ARCHITECTURE §10). Stage-1 sites (`AppBarNegotiate`, `Paint`)
+  still unwired — pending, since Stage 3 (rule 4 now vacuous, no AppBar) means
+  `AppBarNegotiate` may not apply as originally scoped; revisit when doing the
+  rest of P.1. Runtime verification (wpr/traceview showing the event fire)
+  pending on Windows.
 - P.2 — ✅ code complete, builds green. Real-time session + name-derived GUID +
   TDH decode. GUID `{C943A625-2D01-532A-B9E9-19613974D9AD}` verified against the
   .NET EventSource reference algorithm. Live decode from the shell pending P.1 +
