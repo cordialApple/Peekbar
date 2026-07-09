@@ -11,26 +11,36 @@ the provider name `BrowserShellOs.Perf` and the event/field names in §10.
 
 ## Status
 
-- P.1 — 🟡 partial. `src/Trace.h`/`Trace.cpp` land the provider (name-derived
-  GUID pinned to match `ProviderGuidFromName`), `TRACE_EVENT`/`TRACE_SCOPE`
-  macros, register/unregister bracketed in `wWinMain` via `TraceGuard`. Two
-  call sites wired: `FanActivateLatency` (fan click → tab-visible latency
-  chain) and `Paint` (`TaskbarOverlayWindow::Paint`, duration_us + dirty_w/
-  dirty_h). `AppBarNegotiate` DROPPED from the contract — chip-rework Stage 3
-  killed the AppBar dock entirely (rule 4 now vacuous), so there is nothing
-  left to negotiate; ARCHITECTURE §10 and `profiler/Contract.h` updated to
-  match. Remaining Stage-2/3/4/5 sites (`WinEventCallback`, `UiaSnapshot`,
-  `StoreUpdate`, `LauncherAction`) still unwired — each is one-line, do them
-  as ordinary per-stage duty (see below), not a P.1 blocker. Runtime
-  verification (wpr/traceview showing events fire) pending on Windows.
+- P.1 — ✅ code complete, builds green. `src/Trace.h`/`Trace.cpp` land the
+  provider (name-derived GUID pinned to match `ProviderGuidFromName`),
+  `TRACE_EVENT`/`TRACE_SCOPE` macros, register/unregister bracketed in
+  `wWinMain` via `TraceGuard`. All six live call sites wired: `Paint`
+  (`TaskbarOverlayWindow::Paint`), `FanActivateLatency` (fan click →
+  tab-visible latency chain, `TabReader.cpp::ActivateTab`),
+  `WinEventCallback` (`HostWindow::WinEventProc`, browser-window events only —
+  the fg/taskbar hooks are unrelated internal plumbing, not this event),
+  `UiaSnapshot` (worker-loop call site around `SnapshotTabs`, `hr` is a
+  coarse S_OK/E_FAIL/E_HANDLE proxy — `SnapshotTabs`'s many internal
+  early-returns were NOT restructured to thread a real HRESULT out, same
+  complexity trade-off as the existing `activatetab-complexity` debt),
+  `StoreUpdate` (`Store::Set/SetTabs/Remove` — the three mutators that
+  actually change tracked_windows/total_tabs; `SetMinimized`/`MarkTabsStale`
+  don't, so left untraced), `LauncherAction` (`Launcher::Execute`'s detached
+  worker thread — thread-safe by the same precedent as `FanActivateLatency`
+  already emitting from a worker thread). `AppBarNegotiate` DROPPED from the
+  contract — chip-rework Stage 3 killed the AppBar dock entirely (rule 4 now
+  vacuous), so there was nothing left to negotiate; ARCHITECTURE §10 and
+  `profiler/Contract.h` updated to match. Runtime verification (wpr/traceview
+  showing all six events fire) pending on Windows.
 - P.2 — ✅ code complete, builds green. Real-time session + name-derived GUID +
   TDH decode. GUID `{C943A625-2D01-532A-B9E9-19613974D9AD}` verified against the
-  .NET EventSource reference algorithm. Live decode from the shell pending P.1 +
-  elevation.
+  .NET EventSource reference algorithm. Live decode from the shell pending a
+  runtime session on Windows (elevated).
 - P.3 — ✅ code complete, builds green. Per-event count/rate/p50/p95/max +
   shell process CPU%/working-set/handle sampling; console table each interval.
 - P.4 — ✅ `--csv <path>` code complete, builds green. §12 row P end-to-end
-  acceptance pending P.1 + a running shell on Windows (elevated).
+  acceptance pending a running shell + `shell_profiler` session on Windows
+  (elevated).
 
 ## Step P.1 — Shell-side instrumentation (touches shell, minimally)
 

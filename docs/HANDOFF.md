@@ -34,7 +34,7 @@ performance over ETW.
 | Stage 3 — single-window tabs | ✅ Complete — tabs render per-window on minimize, accepted on Win11 |
 | Stage 4 — multi-window stacks | 🟡 code complete (4.1–4.5 + 4.5a) — §12 row 4 acceptance pending on Windows |
 | Stage 5 — taskbar buttons | ✅ ACCEPTED on Win11 — 5a dock buttons + 5b gap overlay (pills-in-gap, event re-measure, single-host dock fallback); all 5 visual checks pass |
-| Profiler (parallel workstream) | 🟡 P.1 partial — `Paint` + `FanActivateLatency` wired, `AppBarNegotiate` dropped (dead, AppBar gone); consumer P.2–P.4 code complete + builds green; runtime verify on Windows pending — see `docs/plans/profiler.md` |
+| Profiler (parallel workstream) | ✅ P.1–P.4 code complete, builds green — all 6 events wired (`Paint`, `FanActivateLatency`, `WinEventCallback`, `UiaSnapshot`, `StoreUpdate`, `LauncherAction`); `AppBarNegotiate` dropped (dead, AppBar gone); §12 row P runtime acceptance pending on Windows (elevated) — see `docs/plans/profiler.md` |
 | Deployment — permanent run ("service" goal) | ⬜ v1 (logon autostart) after Stage 1; v2 (watchdog service) after Stage 5 — see `ARCHITECTURE.md` §13 |
 
 **RESOLVED 2026-07-08 (user-confirmed on Windows): overlay-instability fix holds — no AV crash, no stuck
@@ -154,6 +154,26 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-08 — User confirmed on Windows: overlay-instability fix (2026-07-05) holds — no AV crash, no
+  stuck visible-but-empty overlay under terminal churn, fullscreen suppression latency OK. Former TOP
+  PRIORITY closed. Then finished profiler P.1 (non-Windows session): wired the four remaining call sites.
+  `WinEventCallback` in `HostWindow::WinEventProc` (`src/HostWindow.cpp`, right before the browser-window
+  `PostMessageW` — NOT the fg/taskbar LOCATIONCHANGE hooks, those are unrelated internal plumbing) — event
+  id + hwnd. `UiaSnapshot` wraps the `SnapshotTabs` call in the worker loop (`TabReader.cpp`, around the
+  existing `Snapshot` request branch) — duration_us, hwnd, tab_count, and a coarse hr proxy
+  (S_OK/E_FAIL/E_HANDLE) since `SnapshotTabs` itself has many internal UIA-call early-returns not worth
+  restructuring to thread a real HRESULT out (same complexity trade-off already flagged as
+  `activatetab-complexity` debt). `StoreUpdate` added to `Store::Set/SetTabs/Remove` (`Store.cpp`) via a new
+  private `TraceUpdate()` helper (tracked_windows + total_tabs) — `SetMinimized`/`MarkTabsStale` don't
+  change either count so left untraced (avoids identical-payload noise). `LauncherAction` added to
+  `Launcher::Execute`'s detached MTA worker thread (`Launcher.cpp`) — action type, duration_us, and hr
+  (HRESULT_FROM_WIN32(GetLastError()) on ShellExecuteW/CreateProcessW failure); cross-thread TraceLoggingWrite
+  is safe by the same precedent `FanActivateLatency` already established from TabReader's worker thread.
+  P.1 now ✅ code-complete (all 6 events from ARCHITECTURE §10 wired); P.2–P.4 already were. Both targets
+  build clean. Checkpoint burst skipped as inapplicable to every site (self-reviewed): no new threads, no
+  lifetime/exit-path changes — just TRACE_EVENT calls added to already-existing UI-thread callbacks and
+  worker threads. Only §12 row P runtime acceptance (wpr/traceview showing all 6 events fire, elevated) is
+  left, on Windows.
 - 2026-07-08 — Profiler P.1 continued (non-Windows session; runtime-verify TOP PRIORITY above still
   blocked on a Windows session). Wired `TaskbarOverlayWindow::Paint` (`src/TaskbarOverlayWindow.cpp:613`)
   with `TRACE_EVENT("Paint", duration_us, dirty_w, dirty_h)` — this is the real per-frame paint site now
