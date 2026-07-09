@@ -51,14 +51,22 @@ is the proof. This kills the "retry churn" hypothesis outright: the cost is the 
 secondary (~15% of total, never dominant) and its `us_gate1_wait` field is known-conflated with worker-queue
 dwell time (caveat, not yet split out — deprioritized, see debt below). Data + breakdown visualized in an
 artifact (private, not in the repo — regenerate from `fan_raw.txt`-style capture if lost).
-**NEXT STEP (Opus's explicit recommendation, do not skip): one more narrow instrumentation pass BEFORE any
-fix** — split the ~283ms `FindLiveTabItems` call (`TabReader.cpp`) into its 3 internal cross-process UIA
-operations: `ElementFromHandle` (cheap, expected ~0), `elem->FindAll(TreeScope_Descendants, tabCtrlCond)`
-(walks the WHOLE window subtree incl. the web-content document that gets walked then discarded via
-`IsInsideDocument` — prime suspect), and `tabCtrl->FindAllBuildCache(TreeScope_Descendants, tabItemCond)`
-(bounded, smaller subtree). Add `us_element_from_handle`/`us_findall_tabctrls`/`us_findall_tabitems` fields
-(or similar) to `FanActivateLatency`, same diagnostics-only discipline as the gate1/gate2 pass, capture ~15-20
-more real clicks. **Only after that split should a fix be chosen**: if `FindAll(Descendants)` on the
+**NEXT STEP (Opus's explicit recommendation, do not skip; plan reviewed by Opus a 2nd time, verdict below):
+one more narrow instrumentation pass BEFORE any fix** — split the ~283ms `FindLiveTabItems` call
+(`TabReader.cpp`) into its internal cross-process UIA operations. Opus's reviewed FINAL field set (5 new
+fields, append-only after the existing ones): `us_element_from_handle`, `us_findall_tabctrls` (the
+`elem->FindAll(TreeScope_Descendants, tabCtrlCond)` full-window-subtree walk — prime suspect),
+`us_is_inside_document` (the `IsInsideDocument` parent-walk, up to 30 `GetParentElement` COM calls per
+candidate — Opus's REQUIRED CORRECTION to my first draft: do NOT fold this into the tabitems bucket, it's a
+separate candidate answer to the same fork this pass exists to settle), `us_findall_tabitems` (the
+`FindAllBuildCache` call), and `tabctrl_candidates` (free `ctrlCount`, disambiguates the accumulated buckets —
+e.g. high `us_is_inside_document` + `tabctrl_candidates>1` = paying to reject web-content candidates before
+the real TabControl, pointing at candidate culling as the fix instead of guided descent). Accumulate op-3/op-4
+across all loop iterations (1-2 tabCtrl candidates typically tried per call) into one scalar each — do NOT
+track per-candidate vectors. `us_is_inside_document` accrues on every iteration (including `continue`d ones);
+`us_findall_tabitems` only when `FindAllBuildCache` actually runs — that asymmetry is exactly why the two
+can't be folded together. Report from the winning call only, consistent with existing `tLastWalkUs`. Capture
+~15-20 more real clicks after landing this. **Only after that split should a fix be chosen**: if `FindAll(Descendants)` on the
 TabControl search dominates → try guided descent (`TreeScope_Children` + manual descent toward the known
 "Tab bar" pane) instead of blanket `Descendants` — safe, no caching, stays a pure re-walk, isolated in
 `TabReader.cpp` (rule 6). If instead Chromium's lazy tree-rebuild cost is paid regardless of query scope →
