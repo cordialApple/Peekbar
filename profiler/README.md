@@ -4,8 +4,8 @@ Standalone ETW consumer that measures `browser_shell_os` performance. Separate
 executable, separate build target: never bundled with the shell (hard rule 8).
 
 The only coupling is the ETW **provider name** `BrowserShellOs.Perf` and the
-**event/field names** in `docs/ARCHITECTURE.md` §10, declared independently in
-`Contract.h`. No shell source or header is included.
+**event/field names**, declared independently in `Contract.h`. No shell source
+or header is included.
 
 ## What it does
 

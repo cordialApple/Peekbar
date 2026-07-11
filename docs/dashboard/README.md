@@ -25,9 +25,9 @@ capture runs (602 ms → 271 ms via guided descent).
   <em>Guided descent: baseline 602 ms &rarr; latest 271 ms (&minus;331 ms, 55%) across five capture runs. Run count: 5, each aggregating ~20 clicks (102 total).</em>
 </p>
 
-> Figures dark-theme. Generated from the capture runs logged in
-> `docs/HANDOFF.md` (2026-07; per-run notes in the `CaptureMeta` table);
-> regenerate by opening the pbip below and **Home &rarr; Refresh**.
+> Figures dark-theme. Generated from the 2026-07 capture runs, with per-run
+> notes in the `CaptureMeta` table. Regenerate by opening the pbip below and
+> using **Home &rarr; Refresh**.
 
 ## Open it
 Open `Logging_shell_real.pbip` in Power BI Desktop (needs the **"Store reports using enhanced metadata
@@ -38,7 +38,7 @@ the calculated tables, then **Ctrl+S**.
 - **Format:** PBIP, text-only. Model is TMDL (`*.SemanticModel/definition/`), report is PBIR
   (`*.Report/definition/`). No `.pbix` binary blob, so it diffs and merges in git.
 - **Data:** self-contained. Both fact tables are inline `DATATABLE` calculated tables (no external
-  source, no refresh dependency). Figures are the aggregates from `docs/HANDOFF.md`'s capture log; the
+  source, no refresh dependency). Figures are the aggregates from the capture runs; the
   raw per-click dumps were not retained.
 - **Pages:** Latency Overview · Stage Bottlenecks / Capture Metadata · Run Trends & Guided Descent.
 - **Tables:** `Captures` (per-run), `SubFields` (per-stage), `CaptureMeta` (per-run instrumentation notes).

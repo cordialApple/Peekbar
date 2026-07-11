@@ -12,8 +12,7 @@ sites and shortcuts you use often.
 
 > **Status:** working on Windows 11. Core dock, multi-window tab tracking,
 > and taskbar launcher buttons are implemented and accepted end-to-end.
-> Actively developed: see [`docs/HANDOFF.md`](docs/HANDOFF.md) for the
-> current session-by-session state if you want the unfiltered log.
+> Actively developed.
 
 <p align="center">
   <img src="docs/media/hero.gif" alt="Minimized browser tabs shown as chips in the taskbar's empty gap" width="100%"><br>
@@ -73,7 +72,7 @@ written outside the build folder; delete the `.exe` to remove it.
 | **5** | Taskbar launcher buttons for sites and shortcuts, persisted with the shell. | ✅ |
 | **P** | `shell_profiler`, a separate, never-bundled ETW-based perf observability tool. | 🟡 in progress |
 
-Full technical detail: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+How it works, in depth: [`docs/overview.md`](docs/overview.md).
 
 ## Performance & observability
 
@@ -93,12 +92,10 @@ changes to this codebase live in [`CLAUDE.md`](CLAUDE.md).
 ## Working on this repo (AI-assisted / process docs)
 
 This project is developed with Claude Code sessions bootstrapped from a
-working log rather than a static spec. If you're picking up development
-(human or AI agent):
+working log rather than a static spec. Working rules for that workflow live in
+[`CLAUDE.md`](CLAUDE.md).
 
-- **Start here every session:** [`docs/HANDOFF.md`](docs/HANDOFF.md),
-  current state, next action, doc map.
-- Working rules for AI-assisted development: [`CLAUDE.md`](CLAUDE.md).
-- Per-stage step breakdowns with checkpoints: [`docs/plans/`](docs/plans/).
+The detailed session log and per-stage plans are kept local to the maintainer's
+machine, not published. For the design, see [`docs/overview.md`](docs/overview.md).
 
 Note: this is Windows-native code; it does not build or run on Linux/macOS.
