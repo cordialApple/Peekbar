@@ -20,8 +20,8 @@ sites and shortcuts you use often.
 </p>
 
 <p align="center">
-  <img src="docs/media/multi-window.gif" alt="Two minimized browser windows aggregated as staggered cards with per-tab chips" width="100%"><br>
-  <em>Multiple minimized windows aggregate as staggered cards, each with per-tab chips and an overflow count.</em>
+  <img src="docs/media/gap-pills.gif" alt="Gmail, GitHub, and Projects launcher pills docked in the taskbar gap" width="100%"><br>
+  <em>One-click launcher pills for the sites and shortcuts you use, docked in the same taskbar gap.</em>
 </p>
 
 ## Why
