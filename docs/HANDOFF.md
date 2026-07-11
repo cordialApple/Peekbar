@@ -73,22 +73,42 @@ config/data against a design before building on top of it, not just after.**
 Feature A (pill icon-fallback) is still parked, code-complete but never functionally exercised, on branch
 `feat/pill-icon-fallback` (69064ee/bfb1d54) — not merged.
 
-**Active thread now: folder-fan launcher button.** New idea: a File-Explorer-icon automation button whose
-hover fan lists the immediate subfolders of `C:\Users\randl\Documents\GitHub` (scanned once at
-`Launcher::Load()`, gated to only rescan if the root path changed across a config reload — confirmed
-`ls`'d, contains a mix of ~15 real folders and at least one stray file that must be filtered by directory
-attribute) and whose row-click launches `wt.exe -d "<folder>"`. This reuses/extends the existing
-chip-hover `FanPopup` (documented fragile history — "hover-seam"/"grace timer" bugs) with a second content
-flavor, so went through the same 3-pass Opus design→adversarial→reconciled process before any code: found
-and fixed (still design-only) a real gap where the adversarial pass caught that button-hover was never
-actually wired into `WM_NCHITTEST` at all in the first draft, and that pills/chips share the same X range in
-two-row mode (separated only vertically) so a straight vertical mouse flick between them crosses without a
-`WM_MOUSELEAVE`, which the first draft's "disjoint rects, no coordination needed" assumption would have
-raced. Final design: chip- and button-hover resolve from one atomic cursor read, funnel into one
-`HostWindow::UpdateFanTarget()` that re-`Show`s a single shared `FanPopup` with flavor+target+rows written
-together in one core `Show()` call — no window for stale/mismatched state. **NOT YET IMPLEMENTED** — next
-step is to branch off `feat/azure-theme` (branch first this time, before writing any code, per user
-instruction) and run the same 4-step checkpoint-gated `Workflow` pattern.
+**FolderFan launcher button — SHIPPED on `main`.** A File-Explorer-icon automation button whose hover fan
+lists the immediate subfolders of a configured root (`folderfan` config action), with a live filesystem
+watcher so new/removed subfolders show up without a restart (debounced, resume-from-sleep rescan), and
+row-click launches `wt.exe -d "<folder>" cmd /k claude`. Reuses/extends the existing chip-hover `FanPopup`
+with a second content flavor (`FanFlavor{Tabs,Folders}`); button- and chip-hover resolve from one atomic
+cursor read so there's no seam between them. Checkpoint-passed (2 rounds: config-hot-reload stale-index and
+a UI-thread filesystem-scan violation both caught and fixed; a later round for the live-refresh watcher also
+passed clean). Built and validated on the now-deleted `feat/folder-fan-launcher` branch; landed here as a
+curated squash (code only, no debug scaffolding) after a full session of real use with no reported issues.
+
+**Also landed from that branch: a real crash fix.** A `_DEBUG`-only tab-title diagnostic used unbounded
+`swprintf_s` on a UIA-sourced tab title (no length cap) — would assert/crash modally on a long title,
+freezing the UI thread. Fixed with `_snwprintf_s(..., _TRUNCATE, ...)`, same pattern already used elsewhere
+in this codebase for this exact bug class.
+
+**Also landed: one confirmed sub-fix for a still-OPEN bug (Start/Search-menu close leaving the taskbar
+overlay stuck hidden).** Win11 closes Start/Search by DWM-cloaking the flyout host in place rather than
+losing foreground, so a naive `GetForegroundWindow()`-based flyout check reads "open" indefinitely after a
+visual close. `UpdateOverlaySuppression` now corroborates the process-name match with `DWMWA_CLOAKED`, and a
+system-wide `EVENT_OBJECT_CLOAKED` hook gives zero-latency wake-up — keyed off the process name of the
+window that actually cloaked (not `GetForegroundWindow()` at callback time, which live capture proved is
+always stale by the time a `WINEVENT_OUTOFCONTEXT` callback runs). This closes the Win-key-close case cleanly
+(live-capture-confirmed, sub-millisecond recovery). **It does NOT close the user's actual complaint**:
+clicking the taskbar Start/Search icon (as opposed to the Win key) still leaves the overlay stuck hidden with
+no auto-recovery — confirmed live by the user, "never wins the race," i.e. not merely slow. Four live capture
+attempts (with `shell_profiler --raw`) failed to reproduce that specific failure with the profiler attached,
+so it's unconfirmed whether this is a Z-order-loss-forever bug, a `MeasureGap` validity stall, or something
+else — two Opus consults narrowed the space (ruled out stuck-suppression-state; a pure Z-order race can't
+produce "never," which points toward `ReassertVisibility` bailing on `!m_shown` while `MeasureGap` keeps
+failing, but this is UNCONFIRMED, not diagnosed). **Investigation paused, not solved — accepted open debt.**
+Full investigation history, live-capture data, and the (now-stripped-from-`main`) diagnostic instrumentation
+(`SuppressDebug`/`CloakEventDebug`/`MeasureGapDebug`/`SafetyTickDebug` TRACE_EVENTs) all still live on branch
+`feat/folder-fan-launcher` (kept around specifically for this — do not delete it) for whenever this gets
+picked back up. Next step if resumed: reproduce specifically via icon-click (not Win-key) with those
+diagnostics re-added, since the profiler-attached sessions so far kept accidentally exercising the
+already-working Win-key path instead.
 **Meanwhile (non-Windows sessions, can't runtime-verify the above): profiler P.1 workstream progressed —
 see 2026-07-08 session log entry. Remaining P.1 sites (`WinEventCallback`, `UiaSnapshot`, `StoreUpdate`,
 `LauncherAction`) are one-liners, fair game for a non-Windows session same as this one.**
@@ -226,6 +246,16 @@ one line to the session log. Keep this file short — prune, don't accumulate.
 
 ## Session log (append one line per work session)
 
+- 2026-07-11 — `feat/azure-theme` fast-forward-merged into `main` (clean, 0 conflicts, build verified),
+  reconciled with the 1 origin-only commit (`58edab7`, unrelated CI config), pushed. Then curated-transferred
+  the worthwhile parts of `feat/folder-fan-launcher` onto `main` as 4 clean commits (Opus-reviewed selection):
+  the FolderFan launcher feature (squashed), the tab-title crash fix, the cloak-hook fix, and this consolidated
+  doc entry — see the "FolderFan launcher button" / crash-fix / cloak-hook blocks above for the full detail.
+  Deliberately dropped: a same-session fix-then-revert pair (net zero diff) and all `TEMP DIAGNOSTIC`
+  instrumentation from the still-unsolved icon-click stuck-hidden investigation (their own comments promised
+  removal "once root-caused," which never happened — `main` shouldn't inherit an abandoned hunt's scaffolding).
+  `feat/folder-fan-launcher` kept alive (not deleted) specifically so that diagnostic history survives for
+  whenever the open bug gets picked back up.
 - 2026-07-09 — Guided descent CONFIRMED live (30-click capture, 271ms avg vs 541-570ms baseline,
   `guided_descent_used=1` on all 29 `Selected` rows) — see RESOLVED block above and updated
   `activatetab-restore-to-tabfound-bottleneck` debt. Built an HTML artifact visualizing the capture.
