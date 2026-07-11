@@ -120,11 +120,11 @@ namespace Renderer
         int pillTop, pillH, chipTop, chipH;
         if (twoRow)
         {
-            // 14px pillH used to leave the two-row pill row an unreliably thin hover/click
-            // target (half the single-row height) — bumped to 20px, chipH gives up the
-            // difference so the stack still fits innerH.
             const int vgap = ScalePx(2, dpiI);
-            pillH = ScalePx(20, dpiI);
+            pillH = ScalePx(14, dpiI);
+            // max(1, ...) defensive floor kept even at the original 14px: a short enough
+            // taskbar/DPI combo can still drive innerH-pillH-vgap negative, which would
+            // invert the chip rect and silently make chips unclickable.
             chipH = (std::max)(1, (std::min)(ScalePx(24, dpiI), innerH - pillH - vgap));
             const int stackH = pillH + vgap + chipH;
             pillTop = rc.top + (rowH - stackH) / 2;
