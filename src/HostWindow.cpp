@@ -4,6 +4,7 @@
 #include "Trace.h"
 #include <algorithm>
 #include <thread>
+#include <dwmapi.h>
 
 namespace
 {
@@ -63,6 +64,13 @@ namespace
     // hook (both fire EVENT_OBJECT_LOCATIONCHANGE) and route it to suppression, not a re-measure.
     HWINEVENTHOOK s_fgLocationHook = nullptr;
 
+    // Same single-instance/UI-thread contract. Win11 Start/Search close by DWM-cloaking (no
+    // foreground change, no LOCATIONCHANGE), so closing a flyout emits none of the events the
+    // other hooks watch. This system-wide CLOAKED hook is the zero-latency close signal; without
+    // it, un-suppression waits on the 1500ms kSafetyTimer. The callback re-derives suppression,
+    // which re-reads the (now cloaked) foreground and clears the hide.
+    HWINEVENTHOOK s_flyoutCloakHook = nullptr;
+
     void StoreWindow(Store& store, HWND hwnd)
     {
         wchar_t title[256] = {};
@@ -85,6 +93,20 @@ namespace
         if (!ok) return {};
         const wchar_t* file = wcsrchr(path, L'\\');
         return file ? file + 1 : path;
+    }
+
+    // Win11 shell flyouts (Start/Search) don't destroy or lose foreground on close — the
+    // pre-launched host stays foreground and the window is DWM-CLOAKED (hide-in-place). So a
+    // process-name-only flyout check reads "open" indefinitely after a visual close, until a
+    // different window claims real foreground. DwmGetWindowAttribute is a lightweight local
+    // query (no cross-process wait), safe on the UI thread. Returns true only when the
+    // attribute reads back nonzero; a query failure is treated as "not cloaked" so a real,
+    // truly-open flyout is never falsely un-suppressed.
+    bool IsCloaked(HWND hwnd)
+    {
+        DWORD cloaked = 0;
+        return SUCCEEDED(DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloaked, sizeof(cloaked)))
+               && cloaked != 0;
     }
 }
 
@@ -203,6 +225,14 @@ bool HostWindow::Create(HINSTANCE instance)
             EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE,
             nullptr, WinEventProc, 0, 0, WINEVENT_OUTOFCONTEXT);
         s_fgLocationHook = m_winEventHookFgLocation;
+        // Zero-latency Win11 flyout-close watch. Closing Start/Search cloaks the window in place
+        // (no foreground change, no LOCATIONCHANGE), so only EVENT_OBJECT_CLOAKED reports it.
+        // Set-once system-wide; the callback re-derives suppression, which re-reads the now-cloaked
+        // foreground and lifts the hide. Without it, recovery waits on the 1500ms safety tick.
+        m_winEventHookFlyoutCloak = SetWinEventHook(
+            EVENT_OBJECT_CLOAKED, EVENT_OBJECT_CLOAKED,
+            nullptr, WinEventProc, 0, 0, WINEVENT_OUTOFCONTEXT);
+        s_flyoutCloakHook = m_winEventHookFlyoutCloak;
     }
 
     // Watch the config dir for live edits. Create it first so the watch attaches even
@@ -244,13 +274,23 @@ bool HostWindow::FullscreenOnDockMonitor(HWND fg) const
 // LOCATIONCHANGE — a measure-driven overlay would stay stuck hidden. Drive suppression
 // off the foreground window (flyout process) + the fullscreen state instead, and kick a
 // delayed re-measure on release so the taskbar animation has settled first.
+// Start/Search flyouts use DWM cloaking, not move/hide, so closing one emits no taskbar
+// LOCATIONCHANGE — a measure-driven overlay would stay stuck hidden. Drive suppression
+// off the foreground window (flyout process) + the fullscreen state instead, and kick a
+// delayed re-measure on release so the taskbar animation has settled first.
 void HostWindow::UpdateOverlaySuppression()
 {
     if (!m_taskbarOverlay) return;
     const HWND fg = GetForegroundWindow();
     const std::wstring proc = ProcessBaseName(fg);
-    const bool flyoutOpen = (_wcsicmp(proc.c_str(), L"StartMenuExperienceHost.exe") == 0 ||
-                             _wcsicmp(proc.c_str(), L"SearchHost.exe") == 0);
+    // A cloaked flyout window is closed even though it's still foreground (Win11 hide-in-place):
+    // corroborate the process-name match with DWMWA_CLOAKED so a visually-closed Start/Search
+    // no longer counts as open. Without this, GetForegroundWindow keeps returning the flyout
+    // host after close and `flyoutOpen` stays true until some other window takes foreground.
+    const bool procMatch = _wcsicmp(proc.c_str(), L"StartMenuExperienceHost.exe") == 0 ||
+                            _wcsicmp(proc.c_str(), L"SearchHost.exe") == 0;
+    const bool cloaked = IsCloaked(fg);
+    const bool flyoutOpen = procMatch && !cloaked;
     const bool suppress = flyoutOpen || FullscreenOnDockMonitor(fg);
     if (suppress == m_overlaySuppressed) return;
     m_overlaySuppressed = suppress;
@@ -416,6 +456,27 @@ void CALLBACK HostWindow::WinEventProc(HWINEVENTHOOK hHook, DWORD event, HWND hw
                                         LONG idObject, LONG, DWORD, DWORD) noexcept
 {
     if (!hwnd || !s_dockHwnd) return;
+    if (event == EVENT_OBJECT_CLOAKED)
+    {
+        // Win11 Start/Search closed by cloaking in place. This hook is system-wide (fires for
+        // every window that cloaks, not just flyouts), so narrow to the top-level window itself
+        // (OBJID_WINDOW) belonging to a Start/Search process — WINEVENT_OUTOFCONTEXT delivery is
+        // async, and by the time this callback runs Win11 has already handed foreground back to
+        // whatever owned it before the flyout opened (cloak-in-place and foreground-return happen
+        // together), so checking the CLOAKING window's own process is the correct signal, not
+        // GetForegroundWindow(). Routed through kFgLocationMsg's debounce so a cloak burst
+        // collapses into one re-derive; UpdateOverlaySuppression re-reads the now-cloaked
+        // foreground and lifts the hide.
+        if (hHook == s_flyoutCloakHook && idObject == OBJID_WINDOW)
+        {
+            const std::wstring cloakedProc = ProcessBaseName(hwnd);
+            const bool isFlyout = _wcsicmp(cloakedProc.c_str(), L"StartMenuExperienceHost.exe") == 0 ||
+                                   _wcsicmp(cloakedProc.c_str(), L"SearchHost.exe") == 0;
+            if (isFlyout)
+                PostMessageW(s_dockHwnd, kFgLocationMsg, 0, 0);
+        }
+        return;
+    }
     if (event == EVENT_OBJECT_LOCATIONCHANGE)
     {
         // Global fg-fullscreen hook: it fires for EVERY window move system-wide, so filter hard
@@ -835,6 +896,7 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         m_fanPopup.reset();
         m_taskbarOverlay.reset();
         if (m_winEventHookFgLocation) { UnhookWinEvent(m_winEventHookFgLocation); m_winEventHookFgLocation = nullptr; s_fgLocationHook = nullptr; }
+        if (m_winEventHookFlyoutCloak) { UnhookWinEvent(m_winEventHookFlyoutCloak); m_winEventHookFlyoutCloak = nullptr; s_flyoutCloakHook = nullptr; }
         if (m_winEventHookLocation)   { UnhookWinEvent(m_winEventHookLocation);   m_winEventHookLocation   = nullptr; }
         if (m_winEventHookForeground) { UnhookWinEvent(m_winEventHookForeground); m_winEventHookForeground = nullptr; }
         if (m_winEventHookNameChange) { UnhookWinEvent(m_winEventHookNameChange); m_winEventHookNameChange = nullptr; }

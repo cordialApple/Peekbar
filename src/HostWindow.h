@@ -72,6 +72,7 @@ private:
     HWINEVENTHOOK     m_winEventHookForeground = nullptr;
     HWINEVENTHOOK     m_winEventHookLocation   = nullptr;
     HWINEVENTHOOK     m_winEventHookFgLocation = nullptr;  // set-once global fg LOCATIONCHANGE (in-place fullscreen)
+    HWINEVENTHOOK     m_winEventHookFlyoutCloak = nullptr; // set-once global CLOAKED (Win11 Start/Search close)
     bool              m_overlaySuppressed      = false;  // current overlay suppression (dedupes)
     // The FolderFan button index the fan is currently showing folders for (-1 = none, or
     // showing tabs instead). Set in ShowFanForButton, read when a Folders-flavor
