@@ -1,0 +1,57 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.10.0/schema.json",
+  "name": "donutShare",
+  "position": {
+    "x": 655.31100478468909,
+    "y": 463.92344497607661,
+    "z": 7000,
+    "height": 232.72727272727275,
+    "width": 624.688995215311,
+    "tabOrder": 8000
+  },
+  "visual": {
+    "visualType": "donutChart",
+    "query": {
+      "queryState": {
+        "Category": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "SubFields"
+                    }
+                  },
+                  "Property": "Stage"
+                }
+              },
+              "queryRef": "SubFields.Stage",
+              "nativeQueryRef": "Stage",
+              "active": true
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "SubFields"
+                    }
+                  },
+                  "Property": "SubField Value (ms)"
+                }
+              },
+              "queryRef": "SubFields.SubField Value (ms)",
+              "nativeQueryRef": "SubField Value (ms)"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true
+  }
+}

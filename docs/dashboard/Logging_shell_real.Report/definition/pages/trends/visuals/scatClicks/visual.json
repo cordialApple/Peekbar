@@ -1,0 +1,76 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.10.0/schema.json",
+  "name": "scatClicks",
+  "position": {
+    "x": 24,
+    "y": 464,
+    "z": 6000,
+    "height": 232,
+    "width": 616,
+    "tabOrder": 7000
+  },
+  "visual": {
+    "visualType": "scatterChart",
+    "query": {
+      "queryState": {
+        "Category": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Captures"
+                    }
+                  },
+                  "Property": "Description"
+                }
+              },
+              "queryRef": "Captures.Description",
+              "nativeQueryRef": "Description",
+              "active": true
+            }
+          ]
+        },
+        "X": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Captures"
+                    }
+                  },
+                  "Property": "Avg Clicks"
+                }
+              },
+              "queryRef": "Captures.Avg Clicks",
+              "nativeQueryRef": "Avg Clicks",
+              "active": true
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Captures"
+                    }
+                  },
+                  "Property": "Avg Total Duration (ms)"
+                }
+              },
+              "queryRef": "Captures.Avg Total Duration (ms)",
+              "nativeQueryRef": "Avg Total Duration (ms)"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true
+  }
+}

@@ -1,0 +1,286 @@
+{
+  "$schema": "https://powerbi.com/product/schema#reportTheme",
+  "name": "LatencyDark",
+  "dataColors": [
+    "#F5A623",
+    "#E5484D",
+    "#17C0C0",
+    "#6E56CF",
+    "#30A46C",
+    "#F76808",
+    "#E5C100",
+    "#3E63DD",
+    "#D6409F",
+    "#8B8D98"
+  ],
+  "background": "#1B1E2B",
+  "foreground": "#E4E6EB",
+  "tableAccent": "#F5A623",
+  "good": "#30A46C",
+  "neutral": "#8B8D98",
+  "bad": "#E5484D",
+  "maximum": "#E5484D",
+  "center": "#F5A623",
+  "minimum": "#30A46C",
+  "textClasses": {
+    "title": {
+      "fontSize": 13,
+      "fontFace": "Segoe UI Semibold",
+      "color": "#E4E6EB"
+    },
+    "label": {
+      "fontSize": 10,
+      "fontFace": "Segoe UI",
+      "color": "#B9BBC6"
+    },
+    "callout": {
+      "fontSize": 34,
+      "fontFace": "Segoe UI Semibold",
+      "color": "#F5A623"
+    }
+  },
+  "visualStyles": {
+    "*": {
+      "*": {
+        "background": [
+          {
+            "show": true,
+            "color": {
+              "solid": {
+                "color": "#232733"
+              }
+            },
+            "transparency": 0
+          }
+        ],
+        "border": [
+          {
+            "show": true,
+            "color": {
+              "solid": {
+                "color": "#333846"
+              }
+            },
+            "radius": 6
+          }
+        ],
+        "dropShadow": [
+          {
+            "show": true,
+            "color": {
+              "solid": {
+                "color": "#0D0F17"
+              }
+            },
+            "preset": "BottomRight"
+          }
+        ],
+        "title": [
+          {
+            "show": true,
+            "fontColor": {
+              "solid": {
+                "color": "#E4E6EB"
+              }
+            },
+            "background": {
+              "solid": {
+                "color": "#232733"
+              }
+            },
+            "alignment": "left",
+            "fontSize": 12,
+            "titleWrap": true
+          }
+        ],
+        "labels": [
+          {
+            "color": {
+              "solid": {
+                "color": "#E4E6EB"
+              }
+            }
+          }
+        ],
+        "legend": [
+          {
+            "labelColor": {
+              "solid": {
+                "color": "#B9BBC6"
+              }
+            },
+            "titleColor": {
+              "solid": {
+                "color": "#B9BBC6"
+              }
+            }
+          }
+        ],
+        "categoryAxis": [
+          {
+            "labelColor": {
+              "solid": {
+                "color": "#B9BBC6"
+              }
+            },
+            "titleColor": {
+              "solid": {
+                "color": "#B9BBC6"
+              }
+            },
+            "gridlineShow": false
+          }
+        ],
+        "valueAxis": [
+          {
+            "labelColor": {
+              "solid": {
+                "color": "#B9BBC6"
+              }
+            },
+            "titleColor": {
+              "solid": {
+                "color": "#B9BBC6"
+              }
+            },
+            "gridlineColor": {
+              "solid": {
+                "color": "#2C3140"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "card": {
+      "*": {
+        "labels": [
+          {
+            "color": {
+              "solid": {
+                "color": "#F5A623"
+              }
+            },
+            "fontSize": 30,
+            "fontFamily": "Segoe UI Semibold"
+          }
+        ],
+        "categoryLabels": [
+          {
+            "show": true,
+            "color": {
+              "solid": {
+                "color": "#B9BBC6"
+              }
+            },
+            "fontSize": 10
+          }
+        ],
+        "background": [
+          {
+            "show": true,
+            "color": {
+              "solid": {
+                "color": "#232733"
+              }
+            }
+          }
+        ],
+        "border": [
+          {
+            "show": true,
+            "color": {
+              "solid": {
+                "color": "#333846"
+              }
+            },
+            "radius": 8
+          }
+        ],
+        "title": [
+          {
+            "show": false
+          }
+        ]
+      }
+    },
+    "tableEx": {
+      "*": {
+        "grid": [
+          {
+            "gridVerticalColor": {
+              "solid": {
+                "color": "#2C3140"
+              }
+            },
+            "gridHorizontalColor": {
+              "solid": {
+                "color": "#2C3140"
+              }
+            },
+            "outlineColor": {
+              "solid": {
+                "color": "#2C3140"
+              }
+            },
+            "rowPadding": 4
+          }
+        ],
+        "columnHeaders": [
+          {
+            "fontColor": {
+              "solid": {
+                "color": "#F5A623"
+              }
+            },
+            "backColor": {
+              "solid": {
+                "color": "#12141C"
+              }
+            },
+            "bold": true
+          }
+        ],
+        "values": [
+          {
+            "fontColorPrimary": {
+              "solid": {
+                "color": "#E4E6EB"
+              }
+            },
+            "backColorPrimary": {
+              "solid": {
+                "color": "#232733"
+              }
+            },
+            "fontColorSecondary": {
+              "solid": {
+                "color": "#E4E6EB"
+              }
+            },
+            "backColorSecondary": {
+              "solid": {
+                "color": "#1E2130"
+              }
+            }
+          }
+        ],
+        "total": [
+          {
+            "fontColor": {
+              "solid": {
+                "color": "#F5A623"
+              }
+            },
+            "backColor": {
+              "solid": {
+                "color": "#12141C"
+              }
+            },
+            "bold": true
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.10.0/schema.json",
+  "name": "c4",
+  "position": {
+    "x": 954,
+    "y": 92,
+    "z": 3000,
+    "height": 108,
+    "width": 302,
+    "tabOrder": 4000
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Captures"
+                    }
+                  },
+                  "Property": "Total Reduction %"
+                }
+              },
+              "queryRef": "Captures.Total Reduction %",
+              "nativeQueryRef": "Total Reduction %"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true
+  }
+}

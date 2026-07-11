@@ -1,0 +1,90 @@
+table CaptureMeta
+	lineageTag: cfb71198-a3f5-4c49-a094-991a59149d2e
+
+	measure 'Total Clicks' = SUM(CaptureMeta[Clicks])
+		formatString: 0
+		displayFolder: Metadata
+		lineageTag: 15334d3a-6eab-4eb6-96f5-e6e0cf687df4
+
+	measure 'Matched Rows' = SUM(CaptureMeta[MatchedRows])
+		formatString: 0
+		displayFolder: Metadata
+		lineageTag: 7769dff7-a561-4fbf-b1c7-a654d46beb66
+
+	measure 'NoMatch Rows' = SUM(CaptureMeta[NoMatchRows])
+		formatString: 0
+		displayFolder: Metadata
+		lineageTag: 92e2b05b-753d-44ed-94e3-ce25407f1d00
+
+	measure 'Match Rate' = DIVIDE([Matched Rows], [Matched Rows] + [NoMatch Rows])
+		formatString: 0.0%
+		displayFolder: Metadata
+		lineageTag: 7e8df8c0-1785-4949-aed7-cdd2aa37ed31
+
+	measure 'Captures Instrumented' = COUNTROWS(CaptureMeta)
+		formatString: 0
+		displayFolder: Metadata
+		lineageTag: d587e299-03a2-4750-8625-da149f00f106
+
+	column Capture
+		dataType: int64
+		lineageTag: 5a1c0001-0001-4001-8001-000000000001
+		summarizeBy: none
+		sourceColumn: [Capture]
+
+	column Phase
+		dataType: string
+		lineageTag: 5a1c0001-0002-4001-8001-000000000002
+		summarizeBy: none
+		sourceColumn: [Phase]
+
+	column Clicks
+		dataType: int64
+		lineageTag: 5a1c0001-0003-4001-8001-000000000003
+		summarizeBy: sum
+		sourceColumn: [Clicks]
+
+	column MatchedRows
+		dataType: int64
+		lineageTag: 5a1c0001-0004-4001-8001-000000000004
+		summarizeBy: sum
+		sourceColumn: [MatchedRows]
+
+	column NoMatchRows
+		dataType: int64
+		lineageTag: 5a1c0001-0005-4001-8001-000000000005
+		summarizeBy: sum
+		sourceColumn: [NoMatchRows]
+
+	column GuidedUsedRows
+		dataType: int64
+		lineageTag: 5a1c0001-0006-4001-8001-000000000006
+		summarizeBy: sum
+		sourceColumn: [GuidedUsedRows]
+
+	column Notes
+		dataType: string
+		lineageTag: 5a1c0001-0007-4001-8001-000000000007
+		summarizeBy: none
+		sourceColumn: [Notes]
+
+	partition CaptureMeta = calculated
+		mode: import
+		source =
+				DATATABLE(
+				  "Capture", INTEGER,
+				  "Phase", STRING,
+				  "Clicks", INTEGER,
+				  "MatchedRows", INTEGER,
+				  "NoMatchRows", INTEGER,
+				  "GuidedUsedRows", INTEGER,
+				  "Notes", STRING,
+				  {
+				    {1, "Baseline", 7, 7, 0, 0, "Pre-subfield baseline; ~602 ms total"},
+				    {2, "Gate1/Gate2 split", 19, 19, 0, 0, "gate2_attempts = 1 in 100% of rows (no retries)"},
+				    {3, "5-field walk split", 23, 23, 0, 0, "tabctrl_candidates = 2.17 avg; FindAll = 54.7% of walk"},
+				    {4, "Warm-up probe (abandoned)", 23, 23, 0, 0, "element_from_handle 101.3 to 12.3 ms; net worse (635 ms), probe removed"},
+				    {5, "Guided descent", 30, 29, 1, 29, "Guided descent on all 29; 1 NoMatch (select fields = -1)"}
+				  }
+				)
+

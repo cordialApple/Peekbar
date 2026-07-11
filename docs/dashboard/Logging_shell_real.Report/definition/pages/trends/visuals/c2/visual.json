@@ -1,0 +1,38 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.10.0/schema.json",
+  "name": "c2",
+  "position": {
+    "x": 334,
+    "y": 92,
+    "z": 1000,
+    "height": 108,
+    "width": 294,
+    "tabOrder": 2000
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Captures"
+                    }
+                  },
+                  "Property": "Latest Duration (ms)"
+                }
+              },
+              "queryRef": "Captures.Latest Duration (ms)",
+              "nativeQueryRef": "Latest Duration (ms)"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true
+  }
+}

@@ -1,0 +1,117 @@
+table Captures
+	lineageTag: 90b58db0-62e2-415c-a4e1-ea94af7676a4
+
+	measure 'Avg Total Duration (ms)' = AVERAGE(Captures[TotalDurationMs])
+		formatString: #,0.0 "ms"
+		lineageTag: 1a5ebf57-1dcb-4966-81c7-42143a9203ce
+
+	measure 'Latest Duration (ms)' = CALCULATE(SUM(Captures[TotalDurationMs]), Captures[Capture] = MAX(Captures[Capture]))
+		formatString: #,0.0 "ms"
+		lineageTag: 072384b2-7143-41be-9030-5575540e0e44
+
+	measure 'Baseline Duration (ms)' = CALCULATE(SUM(Captures[TotalDurationMs]), Captures[Capture] = 1)
+		formatString: #,0.0 "ms"
+		lineageTag: 94d8c16d-7f35-426f-b677-d14e302ed932
+
+	measure 'Total Reduction (ms)' = [Baseline Duration (ms)] - [Latest Duration (ms)]
+		formatString: #,0.0 "ms"
+		lineageTag: 85ec6f05-e3f7-441c-82b6-6ac42d68ef7b
+
+	measure 'Total Reduction %' = DIVIDE([Baseline Duration (ms)] - [Latest Duration (ms)], [Baseline Duration (ms)])
+		formatString: 0.0%
+		lineageTag: de326840-efe3-4b0a-ba2e-45a4c9c96212
+
+	measure 'Restore-to-TabFound (ms)' = SUM(Captures[RestoreToTabFoundMs])
+		formatString: #,0.0 "ms"
+		lineageTag: eb24d249-ba7b-4366-985e-36fec9a78d31
+
+	measure 'Restore-to-TabFound % of Total' = AVERAGE(Captures[RestoreToTabFoundPct])
+		formatString: 0.0%
+		lineageTag: 39034f08-11f4-4ff4-8d8b-0daf8e576697
+
+	measure 'Run Count' = DISTINCTCOUNT(Captures[Capture])
+		formatString: 0
+		displayFolder: Overview
+		lineageTag: 9b9f426e-6ac0-4745-86bf-33418b06fe42
+
+	measure 'Avg Clicks' = AVERAGE(Captures[Clicks])
+		formatString: #,0.0
+		displayFolder: Overview
+		lineageTag: b7a06e76-0dc4-435f-a938-db53cac1c40e
+
+	measure 'Fastest Run (ms)' = MIN(Captures[TotalDurationMs])
+		formatString: #,0.0 "ms"
+		displayFolder: Overview
+		lineageTag: 41c8f066-012f-4d0c-8262-b5a6fc58a7ff
+
+	measure 'Guided Descent Duration (ms)' = CALCULATE(AVERAGE(Captures[TotalDurationMs]), Captures[IsGuidedDescent] = 1)
+		formatString: #,0.0 "ms"
+		displayFolder: Overview
+		lineageTag: 3df7e11a-15b2-4638-a09f-17ebd0428807
+
+	measure 'Standard Duration (ms)' = CALCULATE(AVERAGE(Captures[TotalDurationMs]), Captures[IsGuidedDescent] = 0)
+		formatString: #,0.0 "ms"
+		displayFolder: Overview
+		lineageTag: 02d692b8-a668-4883-9b00-f708d7b35f39
+
+	column Capture
+		lineageTag: e6179c90-7e42-49d1-ab34-6fad35f5a21c
+		isNameInferred
+		sourceColumn: [Capture]
+
+	column CaptureDate
+		lineageTag: 6285cc9e-0f8f-4d49-af2a-d1a7cc678b1e
+		isNameInferred
+		sourceColumn: [CaptureDate]
+
+	column Clicks
+		lineageTag: d01a5cb4-2fb7-4867-a47a-6628491df63f
+		isNameInferred
+		sourceColumn: [Clicks]
+
+	column Description
+		lineageTag: 0900fdce-fec0-4e11-b0f0-07e760ebb8a2
+		isNameInferred
+		sourceColumn: [Description]
+
+	column TotalDurationMs
+		lineageTag: 88f163bb-329d-4976-b069-00d9e5ace820
+		isNameInferred
+		sourceColumn: [TotalDurationMs]
+
+	column RestoreToTabFoundMs
+		lineageTag: d52afb56-9572-43e5-a1cf-f3afa02ce4df
+		isNameInferred
+		sourceColumn: [RestoreToTabFoundMs]
+
+	column RestoreToTabFoundPct
+		lineageTag: caf2d039-48be-4a3b-8f72-62b26ab751c2
+		isNameInferred
+		sourceColumn: [RestoreToTabFoundPct]
+
+	column IsGuidedDescent
+		lineageTag: 46080b6c-a40b-4606-80c8-4ad23712324b
+		isNameInferred
+		sourceColumn: [IsGuidedDescent]
+
+	partition Captures_Partition = calculated
+		mode: import
+		source =
+				DATATABLE(
+				  "Capture", INTEGER,
+				  "CaptureDate", DATETIME,
+				  "Clicks", INTEGER,
+				  "Description", STRING,
+				  "TotalDurationMs", DOUBLE,
+				  "RestoreToTabFoundMs", DOUBLE,
+				  "RestoreToTabFoundPct", DOUBLE,
+				  "IsGuidedDescent", INTEGER,
+				  {
+				    {1, DT"2026-07-08", 7, "Baseline live run", 602, 452, 0.74, 0},
+				    {2, DT"2026-07-08", 19, "Restore-to-tabfound localization", 570, 397, 0.696, 0},
+				    {3, DT"2026-07-08", 23, "5-field FindLiveTabItems split", 574.6, 397, 0.69, 0},
+				    {4, DT"2026-07-08", 23, "Warm-up-touch probe (abandoned)", 635.3, 397, 0.625, 0},
+				    {5, DT"2026-07-09", 30, "Guided descent confirmation", 271, 161, 0.592, 1}
+				  }
+				)
+

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.10.0/schema.json",
+  "name": "c4",
+  "position": {
+    "x": 768.61244019138758,
+    "y": 91.866028708133982,
+    "z": 3000,
+    "height": 108.70813397129187,
+    "width": 90.334928229665081,
+    "tabOrder": 4000
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Captures"
+                    }
+                  },
+                  "Property": "Run Count"
+                }
+              },
+              "queryRef": "Captures.Run Count",
+              "nativeQueryRef": "Run Count"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true
+  }
+}

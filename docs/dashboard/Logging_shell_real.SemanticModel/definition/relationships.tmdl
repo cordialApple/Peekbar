@@ -1,0 +1,4 @@
+relationship 'SubFields_Capture to Captures_Capture'
+	fromColumn: SubFields.Capture
+	toColumn: Captures.Capture
+

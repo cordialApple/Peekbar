@@ -1,0 +1,92 @@
+table SubFields
+	lineageTag: 6c7840c2-279a-43a7-80c4-fdcaf1910170
+
+	measure 'SubField Value (ms)' = SUM(SubFields[ValueMs])
+		formatString: #,0.0 "ms"
+		lineageTag: ba109cdb-71d7-4072-b13f-3a4e3397e3a7
+
+	measure 'SubField % of Total' = AVERAGE(SubFields[PctOfTotal])
+		formatString: 0.0%
+		lineageTag: 9aa58dec-c29d-4876-b5fb-f7030da166c7
+
+	measure 'Avg Stage Time (ms)' = AVERAGE(SubFields[ValueMs])
+		formatString: #,0.0 "ms"
+		displayFolder: Bottleneck Analysis
+		lineageTag: 06f1c827-9009-440e-b289-45f5943fdd7c
+
+	measure 'Stage Rank (by Avg Time)' = RANKX(ALL(SubFields[Stage]), CALCULATE(AVERAGE(SubFields[ValueMs])),, DESC)
+		formatString: 0
+		displayFolder: Bottleneck Analysis
+		lineageTag: 4fe381e5-5baa-40cb-9707-9edb74a19c55
+
+	measure 'Top Bottleneck Stage' = VAR t = TOPN(1, SUMMARIZE(ALL(SubFields), SubFields[Stage], "Avg", AVERAGE(SubFields[ValueMs])), [Avg], DESC) RETURN MAXX(t, SubFields[Stage])
+		displayFolder: Bottleneck Analysis
+		lineageTag: b9739aeb-50cc-4c5f-85dc-2a8bb3b4f3b2
+
+	measure 'Total Avg Process (ms)' = SUMX(VALUES(SubFields[Stage]), CALCULATE(AVERAGE(SubFields[ValueMs])))
+		formatString: #,0.0 "ms"
+		displayFolder: Bottleneck Analysis
+		lineageTag: b2c4d876-80c4-462b-a2e7-eb3fa3116a48
+
+	measure 'Slowest Stage Time (ms)' = MAXX(VALUES(SubFields[Stage]), CALCULATE(AVERAGE(SubFields[ValueMs])))
+		formatString: #,0.0 "ms"
+		displayFolder: Bottleneck Analysis
+		lineageTag: f2ef7429-5efa-4bb5-8968-5cd6eafd6306
+
+	measure 'Stage Count' = DISTINCTCOUNT(SubFields[Stage])
+		formatString: 0
+		displayFolder: Bottleneck Analysis
+		lineageTag: 77d45668-52fa-4b43-9dee-dcf8ea6637b2
+
+	column Capture
+		lineageTag: 0d55f06c-6453-424f-bd9e-796081aa7d66
+		isNameInferred
+		sourceColumn: [Capture]
+
+	column Field
+		lineageTag: f8374190-6919-48ac-ae1b-93fe672e0339
+		isNameInferred
+		sourceColumn: [Field]
+
+	column Stage
+		lineageTag: 85febb76-f227-4827-818f-a2eb368de2dd
+		isNameInferred
+		sourceColumn: [Stage]
+
+	column ValueMs
+		lineageTag: 882b888f-97fd-400c-8bdb-4db9db8c0e53
+		isNameInferred
+		sourceColumn: [ValueMs]
+
+	column PctOfTotal
+		lineageTag: db55ce66-00fb-452d-b2fc-8233fa57af0a
+		isNameInferred
+		sourceColumn: [PctOfTotal]
+
+	partition SubFields_Partition = calculated
+		mode: import
+		source =
+				DATATABLE(
+				  "Capture", INTEGER,
+				  "Field", STRING,
+				  "Stage", STRING,
+				  "ValueMs", DOUBLE,
+				  "PctOfTotal", DOUBLE,
+				  {
+				    {1, "us_click_to_restore", "Click to restore", 1.3, 0.002},
+				    {1, "us_restore_to_tabfound", "Restore to tab-found", 452, 0.74},
+				    {1, "us_tabfound_to_select", "Tab-found to select", 77, 0.128},
+				    {1, "us_select_to_confirm", "Select to confirm", 72, 0.12},
+				    {2, "us_gate1_wait", "Gate 1 wait", 80, 0.15},
+				    {2, "us_gate2_wait", "Gate 2 wait", 283, 0.78},
+				    {2, "us_first_walk", "First walk", 283, 0.78},
+				    {3, "us_findall_tabctrls", "FindAll TabControls", 213.6, 0.547},
+				    {3, "us_element_from_handle", "ElementFromHandle", 121.1, 0.31},
+				    {3, "us_is_inside_document", "IsInsideDocument filter", 25.4, 0.065},
+				    {4, "us_element_from_handle", "ElementFromHandle (warm)", 12.3, 0.019},
+				    {4, "us_warmup_touch", "Warm-up touch", 151, 0.238},
+				    {5, "us_findall_tabctrls", "FindAll TabControls", 69.5, 0.256},
+				    {5, "us_restore_to_tabfound", "Restore to tab-found", 161, 0.592}
+				  }
+				)
+

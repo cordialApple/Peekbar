@@ -1,0 +1,57 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.10.0/schema.json",
+  "name": "colRestore",
+  "position": {
+    "x": 656,
+    "y": 464,
+    "z": 7000,
+    "height": 232,
+    "width": 600,
+    "tabOrder": 8000
+  },
+  "visual": {
+    "visualType": "columnChart",
+    "query": {
+      "queryState": {
+        "Category": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Captures"
+                    }
+                  },
+                  "Property": "Capture"
+                }
+              },
+              "queryRef": "Captures.Capture",
+              "nativeQueryRef": "Capture",
+              "active": true
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Captures"
+                    }
+                  },
+                  "Property": "Restore-to-TabFound (ms)"
+                }
+              },
+              "queryRef": "Captures.Restore-to-TabFound (ms)",
+              "nativeQueryRef": "Restore-to-TabFound (ms)"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "version": "4.0",
+  "datasetReference": {
+    "byPath": {
+      "path": "../Logging_shell_real.SemanticModel"
+    }
+  }
+}

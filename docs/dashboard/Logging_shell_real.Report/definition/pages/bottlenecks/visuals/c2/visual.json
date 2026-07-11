@@ -1,0 +1,38 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.10.0/schema.json",
+  "name": "c2",
+  "position": {
+    "x": 440,
+    "y": 92,
+    "z": 1000,
+    "height": 108,
+    "width": 390,
+    "tabOrder": 2000
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "SubFields"
+                    }
+                  },
+                  "Property": "Slowest Stage Time (ms)"
+                }
+              },
+              "queryRef": "SubFields.Slowest Stage Time (ms)",
+              "nativeQueryRef": "Slowest Stage Time (ms)"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true
+  }
+}
