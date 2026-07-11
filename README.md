@@ -1,7 +1,9 @@
 # Peekbar
 
-A native Windows shell tool that keeps your browser's tabs visible when you
-minimize the window.
+Built a Windows-native browser workspace runtime that exposes persistent
+browser state through taskbar-integrated controls, enabling low-latency
+context switching and automation workflows, with event-driven telemetry and
+performance instrumentation over Windows tracing APIs.
 
 Minimizing a browser window normally collapses it into a flat taskbar button,
 and everything you were looking at disappears. `Peekbar` adds a
@@ -10,14 +12,14 @@ windows leave their tabs behind as hoverable chips. Multiple minimized
 windows stack up as staggered cards, plus one-click launcher buttons for
 sites and shortcuts you use often.
 
+<p align="center">
+  <img src="docs/media/hero.gif" alt="Peekbar demo: hover a chip to fan out a window's tabs, click to restore, launch projects, and aggregate minimized windows in the taskbar gap" width="100%"><br>
+  <em>Hover a chip to fan out a window's tabs, click to restore, launch a project into a terminal, and watch minimized windows aggregate, all in the taskbar's empty gap.</em>
+</p>
+
 > **Status:** working on Windows 11. Core dock, multi-window tab tracking,
 > and taskbar launcher buttons are implemented and accepted end-to-end.
 > Actively developed.
-
-<p align="center">
-  <img src="docs/media/hero.gif" alt="Minimized browser tabs shown as chips in the taskbar's empty gap" width="100%"><br>
-  <em>Minimize a browser and its tabs stay glance-able as chips in the taskbar's own empty gap.</em>
-</p>
 
 <p align="center">
   <img src="docs/media/gap-pills.gif" alt="Gmail, GitHub, and Projects launcher pills docked in the taskbar gap" width="100%"><br>
