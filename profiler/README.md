@@ -22,8 +22,8 @@ or header is included.
 The `FanActivateLatency` captures feed a git-diffable Power BI dashboard:
 
 <p align="center">
-  <img src="../docs/dashboard/img/overview-cards.png" width="800" alt="Dashboard KPIs from this profiler's output: average total 530.6 ms, fastest run 271 ms, 55% reduction, 5 runs, top bottleneck restore-to-tab-found"><br>
-  <em>KPI cards built on this profiler's output. Full latency analysis: <a href="../docs/dashboard/">docs/dashboard/</a>.</em>
+  <img src="../docs/dashboard/img/overview.png" width="800" alt="Latency Overview dashboard page built on this profiler's output: 530.6 ms average, 271 ms fastest run, 55% reduction over 5 runs, restore-to-tab-found dominant"><br>
+  <em>The latency dashboard, built on this profiler's output. Full analysis: <a href="../docs/dashboard/">docs/dashboard/</a>.</em>
 </p>
 
 ## Build

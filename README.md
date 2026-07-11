@@ -48,15 +48,15 @@ cmake --build build --config Release
 build\Release\browser_shell_os.exe
 ```
 
-The tool runs as a hidden coordinator window: no visible main window, no
-taskbar icon. It draws its dock strip in the taskbar's gap area and exits
-cleanly when killed from Task Manager. There's no installer and nothing is
-written outside the build folder; delete the `.exe` to remove it.
+The tool runs as a hidden coordinator window. It draws its dock strip in the
+taskbar's gap area and exits cleanly when killed from Task Manager. There's no
+installer and nothing is written outside the build folder; delete the `.exe`
+to remove it.
 
 ## Stack
 
-- **C++17 / Win32**: a real shell tool, no frameworks, no Electron, no web
-  view, no third-party dependencies.
+- **C++17 / Win32**: no frameworks, no Electron, no web view, no third-party
+  dependencies.
 - **UI Automation** for reading tab titles (self-contained; no browser
   extension required).
 - Per-monitor DPI aware.
@@ -70,9 +70,9 @@ written outside the build folder; delete the `.exe` to remove it.
 | **3** | Track one browser's tabs; keep them on-screen after minimize. | ✅ |
 | **4** | Track multiple browsers; aggregate as a staggered card stack. | ✅ |
 | **5** | Taskbar launcher buttons for sites and shortcuts, persisted with the shell. | ✅ |
-| **P** | `shell_profiler`, a separate, never-bundled ETW-based perf observability tool. | 🟡 in progress |
+| **P** | `shell_profiler`, a separate, never-bundled ETW-based perf observability tool. | ✅ |
 
-How it works, in depth: [`docs/overview.md`](docs/overview.md).
+How it works, in depth: [`docs/`](docs/).
 
 ## Performance & observability
 
@@ -82,20 +82,7 @@ the work. `restore→tab-found` was the dominant cost. Guided passes took the
 path from 602 ms to 271 ms across 5 capture runs (102 clicks). Details:
 [`docs/dashboard/`](docs/dashboard/) and [`profiler/`](profiler/).
 
-## Contributing
-
-Issues and PRs welcome. Build prerequisites are above; house rules for
-changes to this codebase live in [`CLAUDE.md`](CLAUDE.md).
-
----
-
-## Working on this repo (AI-assisted / process docs)
-
-This project is developed with Claude Code sessions bootstrapped from a
-working log rather than a static spec. Working rules for that workflow live in
-[`CLAUDE.md`](CLAUDE.md).
-
-The detailed session log and per-stage plans are kept local to the maintainer's
-machine, not published. For the design, see [`docs/overview.md`](docs/overview.md).
-
-Note: this is Windows-native code; it does not build or run on Linux/macOS.
+<p align="center">
+  <img src="docs/dashboard/img/stage-bottlenecks.png" width="800" alt="Per-stage latency breakdown: restore-to-tab-found tops at 306.5 ms across 5 capture runs and 102 clicks"><br>
+  <em>Per-stage latency breakdown. <code>restore&rarr;tab-found</code> dominates. Full dashboard in <a href="docs/dashboard/">docs/dashboard/</a>.</em>
+</p>

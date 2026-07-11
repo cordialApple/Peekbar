@@ -39,7 +39,7 @@ or `.lnk` file yourself. No URLs or shortcuts ship preconfigured.
 ## Source
 
 This is source-available under the MIT license. Read `src/` yourself rather
-than taking the above on faith. [`docs/overview.md`](docs/overview.md) has the
+than taking the above on faith. [`docs/`](docs/) has the
 technical design if you want the "why," not just the "what."
 
 ## Reporting a vulnerability
