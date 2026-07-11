@@ -120,9 +120,12 @@ namespace Renderer
         int pillTop, pillH, chipTop, chipH;
         if (twoRow)
         {
+            // 14px pillH used to leave the two-row pill row an unreliably thin hover/click
+            // target (half the single-row height) — bumped to 20px, chipH gives up the
+            // difference so the stack still fits innerH.
             const int vgap = ScalePx(2, dpiI);
-            pillH = ScalePx(14, dpiI);
-            chipH = (std::min)(ScalePx(24, dpiI), innerH - pillH - vgap);
+            pillH = ScalePx(20, dpiI);
+            chipH = (std::max)(1, (std::min)(ScalePx(24, dpiI), innerH - pillH - vgap));
             const int stackH = pillH + vgap + chipH;
             pillTop = rc.top + (rowH - stackH) / 2;
             chipTop = pillTop + pillH + vgap;
@@ -157,11 +160,32 @@ namespace Renderer
         }
 
         // Pills: own row (full avail) in two-row mode; leftover after chips in single-row.
+        // First-fit-wins by config order means a gap tight enough to drop pills always
+        // drops from the right — the least recently added FolderFan button would be the
+        // first casualty even though it (uniquely) has a fan to lose. A FolderFan button
+        // that doesn't fit evicts the rightmost non-FolderFan pill already placed instead
+        // of being silently dropped; if nothing evictable is placed, it drops like any
+        // other pill (an all-FolderFan or completely-full gap has no room to make).
         const int pillW = ScalePx(71, dpiI);
         int px = twoRow ? left : x;
         for (int i = 0; i < static_cast<int>(buttons.size()); ++i)
         {
-            if (px + pillW > right) break;
+            if (px + pillW > right)
+            {
+                if (buttons[i].action == ButtonAction::FolderFan)
+                {
+                    auto evict = std::find_if(out.buttons.rbegin(), out.buttons.rend(),
+                        [&](const ButtonHit& h) { return buttons[h.index].action != ButtonAction::FolderFan; });
+                    if (evict != out.buttons.rend())
+                    {
+                        px = evict->rect.left;
+                        out.buttons.erase(std::next(evict).base());
+                        out.buttons.push_back({ { px, pillTop, px + pillW, pillTop + pillH }, i });
+                        px += pillW + gap;
+                    }
+                }
+                continue;
+            }
             out.buttons.push_back({ { px, pillTop, px + pillW, pillTop + pillH }, i });
             px += pillW + gap;
         }
