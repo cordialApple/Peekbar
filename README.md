@@ -55,7 +55,7 @@ to remove it.
 
 ## Stack
 
-- **C++17 / Win32**: 
+- **C++17 / Win32**
 - **UI Automation** for reading tab titles (self-contained; no browser
   extension required).
 - Per-monitor DPI aware.
