@@ -29,3 +29,10 @@ cmake_install.cmake
 *.user
 Thumbs.db
 Desktop.ini
+
+# Internal dev docs: kept local, not published (session-start reads them locally)
+/docs/ARCHITECTURE.md
+/docs/HANDOFF.md
+/docs/profiler-project-structure.md
+/docs/plans/
+/docs/research/
