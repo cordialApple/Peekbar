@@ -1,6 +1,6 @@
 # Peekbar
 
-Designed an OS-integrated browser state management layer that exposes
+An OS-integrated browser state management layer that exposes
 persistent browser state through taskbar-integrated controls, enabling
 low-latency context switching and automation workflows, with event-driven
 telemetry and performance instrumentation over Windows tracing APIs.
