@@ -57,12 +57,13 @@ void FanPopup::Destroy()
     m_visible = false;
 }
 
-void FanPopup::Show(HWND targetHwnd, const std::vector<Tab>& tabs,
+void FanPopup::Show(FanFlavor flavor, HWND targetHwnd, const std::vector<Tab>& rows,
                     int anchorLeftScreen, int anchorRightScreen, int anchorTopScreen, UINT dpi)
 {
     if (!m_hwnd) return;
-    if (tabs.empty()) { Hide(); return; }
+    if (rows.empty()) { Hide(); return; }
 
+    m_flavor     = flavor;
     m_targetHwnd = targetHwnd;
     const int dpiI = dpi ? static_cast<int>(dpi) : 96;
     m_dpi   = static_cast<UINT>(dpiI);
@@ -91,10 +92,10 @@ void FanPopup::Show(HWND targetHwnd, const std::vector<Tab>& tabs,
     int maxRows = (avail - pad * 2) / rowH;
     if (maxRows < 1) maxRows = 1;
 
-    const int total = static_cast<int>(tabs.size());
+    const int total = static_cast<int>(rows.size());
     const int shown = total > maxRows ? maxRows : total;   // silent cap; no "+N more" trailer
 
-    m_tabs.assign(tabs.begin(), tabs.begin() + shown);
+    m_tabs.assign(rows.begin(), rows.begin() + shown);
     m_hoverRow = -1;
 
     int height = shown * rowH + pad * 2;
@@ -231,7 +232,7 @@ LRESULT CALLBACK FanPopup::StaticWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPA
             const int idx = self->RowAt(pt);
             if (idx >= 0 && self->m_ownerHwnd && self->m_activateMsg)
             {
-                auto* req = new FanActivateRequest{ idx, tClick };
+                auto* req = new FanActivateRequest{ self->m_flavor, idx, tClick };
                 if (!PostMessageW(self->m_ownerHwnd, self->m_activateMsg,
                                   reinterpret_cast<WPARAM>(self->m_targetHwnd),
                                   reinterpret_cast<LPARAM>(req)))

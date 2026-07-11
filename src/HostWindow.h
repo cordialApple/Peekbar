@@ -34,6 +34,22 @@ private:
                                       LONG idObject, LONG, DWORD, DWORD) noexcept;
 
     void ShowFanForChip(HWND chip);
+    void ShowFanForButton(int buttonIndex);
+    // Spawn one detached worker thread per Launcher::PendingFolderScans() root (rule 5 —
+    // the scan itself is blocking filesystem enumeration, never run on the UI thread);
+    // each posts its result back via kFolderScanResultMsg. Call after every Launcher::Load().
+    void RequestFolderScans();
+    // Spawn one detached worker thread scanning `root`, posting the result via
+    // kFolderScanResultMsg. Shared by RequestFolderScans, the debounced change-watcher
+    // rescan, and the sleep/wake resume backstop.
+    void ScanRootAsync(const std::wstring& root);
+    // (Re)build one ConfigWatcher (any-change mode) per Launcher::FolderFanRoots() root,
+    // replacing any prior set (each old watcher's dtor stops+joins its thread cleanly
+    // first). Call after every Launcher::Load(), same as RequestFolderScans.
+    void RebuildFolderFanWatchers();
+    // Queue `root` for a debounced rescan (deduped against pending) and arm the one-shot
+    // kFolderFanScanTimer, coalescing a change-burst into one rescan per root.
+    void QueueFolderFanRescan(const std::wstring& root);
     void RestoreWindow(HWND target);
     void RequestSnapshotDebounced(HWND hwnd);
     // Hide the gap overlay while a Start/Search flyout is open or a fullscreen app owns
@@ -57,6 +73,16 @@ private:
     HWINEVENTHOOK     m_winEventHookLocation   = nullptr;
     HWINEVENTHOOK     m_winEventHookFgLocation = nullptr;  // set-once global fg LOCATIONCHANGE (in-place fullscreen)
     bool              m_overlaySuppressed      = false;  // current overlay suppression (dedupes)
+    // The FolderFan button index the fan is currently showing folders for (-1 = none, or
+    // showing tabs instead). Set in ShowFanForButton, read when a Folders-flavor
+    // kFanActivateMsg arrives to resolve which button's folderEntries the row belongs to.
+    int               m_fannedButtonIndex      = -1;
+    // One any-change ConfigWatcher per distinct FolderFan root, rebuilt whenever the
+    // config reloads (RebuildFolderFanWatchers). Roots pending a debounced rescan
+    // (kFolderFanChangedMsg → kFolderFanScanTimer coalesces a change-burst into one
+    // rescan per root) are collected in m_pendingFolderFanRescans.
+    std::vector<std::unique_ptr<ConfigWatcher>> m_folderFanWatchers;
+    std::vector<std::wstring>                   m_pendingFolderFanRescans;
     UINT              m_taskbarCreatedMsg      = 0;      // RegisterWindowMessageW(L"TaskbarCreated")
     std::unique_ptr<TabReader>     m_tabReader;
     std::unique_ptr<FanPopup>      m_fanPopup;

@@ -4,12 +4,18 @@
 #include <vector>
 #include "Store.h"
 
-// activateMsg payload: wparam=targetHwnd, lparam=pointer to a heap-allocated
-// FanActivateRequest (owned by the receiver — delete after reading). tClickUs
-// is the trigger timestamp (A) for the click-to-visible-frame latency chain.
+// Tabs: rows are a minimized window's tabs, targetHwnd = that window (activate a tab
+// on click). Folders: rows are a FolderFan button's subfolder names, targetHwnd unused
+// (launch a folder on click) — the owner resolves which button via its own hover state.
+enum class FanFlavor { Tabs, Folders };
+
+// activateMsg payload: wparam=targetHwnd (Tabs) or 0 (Folders), lparam=pointer to a
+// heap-allocated FanActivateRequest (owned by the receiver — delete after reading).
+// tClickUs is the trigger timestamp (A) for the click-to-visible-frame latency chain.
 struct FanActivateRequest
 {
-    int       tabIndex;
+    FanFlavor flavor;
+    int       rowIndex;
     long long tClickUs;
 };
 
@@ -28,10 +34,12 @@ public:
     bool Create(HINSTANCE instance, HWND ownerHwnd, UINT activateMsg);
     void Destroy();
 
-    // targetHwnd = the window whose tabs these are (echoed back on a row click).
+    // targetHwnd = the window whose tabs these are (Tabs flavor; echoed back on a row
+    // click), unused for Folders. rows: Tabs flavor = the window's tabs; Folders flavor =
+    // folder names wrapped as Tab{name, false} (no active-row highlight).
     // Anchor: bottom edge sits at anchorTopScreen, left aligned to anchorLeftScreen,
     // clamped to the anchor's monitor. Grows upward.
-    void Show(HWND targetHwnd, const std::vector<Tab>& tabs,
+    void Show(FanFlavor flavor, HWND targetHwnd, const std::vector<Tab>& rows,
               int anchorLeftScreen, int anchorRightScreen, int anchorTopScreen, UINT dpi);
     void Hide();
 
@@ -58,6 +66,7 @@ private:
     HWND              m_hwnd        = nullptr;
     HWND              m_ownerHwnd   = nullptr;
     UINT              m_activateMsg = 0;
+    FanFlavor         m_flavor      = FanFlavor::Tabs;
     HWND              m_targetHwnd  = nullptr;
     bool              m_visible     = false;
     bool              m_fanTracking = false;

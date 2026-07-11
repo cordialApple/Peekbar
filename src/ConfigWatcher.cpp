@@ -37,7 +37,9 @@ void ConfigWatcher::WorkerLoop()
     alignas(DWORD) BYTE buf[4096];
     const DWORD filter = FILE_NOTIFY_CHANGE_LAST_WRITE |
                          FILE_NOTIFY_CHANGE_FILE_NAME |
+                         FILE_NOTIFY_CHANGE_DIR_NAME |
                          FILE_NOTIFY_CHANGE_SIZE;
+    const bool anyChange = m_file.empty();
     HANDLE waits[2] = { ov.hEvent, m_stopEvent };
 
     bool pending = false;
@@ -57,7 +59,8 @@ void ConfigWatcher::WorkerLoop()
             break;
 
         // transferred == 0 means the buffer overflowed; treat as a relevant change.
-        bool matched = (transferred == 0);
+        // Any-change mode matches every completion outright — no need to parse entries.
+        bool matched = anyChange || (transferred == 0);
         for (DWORD offset = 0; !matched && offset < transferred; )
         {
             const auto* fni = reinterpret_cast<const FILE_NOTIFY_INFORMATION*>(buf + offset);
@@ -66,8 +69,16 @@ void ConfigWatcher::WorkerLoop()
             if (fni->NextEntryOffset == 0) break;
             offset += fni->NextEntryOffset;
         }
-        if (matched)
+        if (matched && anyChange)
+        {
+            auto* dir = new std::wstring(m_dir);
+            if (!PostMessageW(m_hwnd, m_changeMsg, 0, reinterpret_cast<LPARAM>(dir)))
+                delete dir;
+        }
+        else if (matched)
+        {
             PostMessageW(m_hwnd, m_changeMsg, 0, 0);
+        }
     }
 
     // Drain a still-pending ReadDirectoryChangesW before closing handles: CancelIo is

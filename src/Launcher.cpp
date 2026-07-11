@@ -1,8 +1,10 @@
 #include "Launcher.h"
 #include "Trace.h"
 #include <shlobj.h>
+#include <algorithm>
 #include <cstdarg>
 #include <cstring>
+#include <cwchar>
 #include <fstream>
 #include <string>
 #include <thread>
@@ -74,9 +76,10 @@ namespace
 
     bool ParseAction(const std::wstring& s, ButtonAction& out)
     {
-        if (s == L"url")      { out = ButtonAction::Url;      return true; }
-        if (s == L"shortcut") { out = ButtonAction::Shortcut; return true; }
-        if (s == L"command")  { out = ButtonAction::Command;  return true; }
+        if (s == L"url")       { out = ButtonAction::Url;       return true; }
+        if (s == L"shortcut")  { out = ButtonAction::Shortcut;  return true; }
+        if (s == L"command")   { out = ButtonAction::Command;   return true; }
+        if (s == L"folderfan") { out = ButtonAction::FolderFan; return true; }
         return false;
     }
 
@@ -84,12 +87,65 @@ namespace
     {
         switch (a)
         {
-        case ButtonAction::Url:      return L"url";
-        case ButtonAction::Shortcut: return L"shortcut";
-        case ButtonAction::Command:  return L"command";
+        case ButtonAction::Url:       return L"url";
+        case ButtonAction::Shortcut:  return L"shortcut";
+        case ButtonAction::Command:   return L"command";
+        case ButtonAction::FolderFan: return L"folderfan";
         }
         return L"unknown";
     }
+
+    // Fire-and-forget: CreateProcessW a command line on a detached MTA worker, tracing the
+    // outcome under `traceAction`. MTA, not STA: this worker runs no message pump, so an STA
+    // (which requires one) could hang a DDE-style shell handler; balance CoUninitialize only
+    // on a successful init (RPC_E_CHANGED_MODE must not be uninitialized).
+    void RunCommandWorker(std::wstring cmdLine, const wchar_t* traceAction)
+    {
+        std::thread([cmdLine = std::move(cmdLine), traceAction]() mutable {
+            const long long tStartUs = trace::NowUs();
+            const HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            HRESULT actionHr = S_OK;
+            STARTUPINFOW si = { sizeof(si) };
+            PROCESS_INFORMATION pi = {};
+            if (CreateProcessW(nullptr, cmdLine.data(), nullptr, nullptr, FALSE,
+                               0, nullptr, nullptr, &si, &pi))
+            {
+                CloseHandle(pi.hThread);
+                CloseHandle(pi.hProcess);
+            }
+            else
+            {
+                actionHr = HRESULT_FROM_WIN32(GetLastError());
+            }
+            if (SUCCEEDED(hr)) CoUninitialize();
+            TRACE_EVENT("LauncherAction",
+                TraceLoggingWideString(traceAction, "action"),
+                TraceLoggingInt64(trace::NowUs() - tStartUs, "duration_us"),
+                TraceLoggingInt32(actionHr, "hr"));
+        }).detach();
+    }
+
+}
+
+// static
+std::vector<std::wstring> Launcher::ScanImmediateSubfolders(const std::wstring& root)
+{
+    std::vector<std::wstring> out;
+    WIN32_FIND_DATAW fd;
+    const std::wstring pattern = root + L"\\*";
+    HANDLE h = FindFirstFileW(pattern.c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return out;
+    do
+    {
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+        if (std::wcscmp(fd.cFileName, L".") == 0 || std::wcscmp(fd.cFileName, L"..") == 0) continue;
+        out.emplace_back(fd.cFileName);
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+    std::sort(out.begin(), out.end(), [](const std::wstring& a, const std::wstring& b) {
+        return _wcsicmp(a.c_str(), b.c_str()) < 0;
+    });
+    return out;
 }
 
 std::wstring Launcher::ConfigDir()
@@ -122,6 +178,7 @@ void Launcher::Load()
 {
     m_buttons.clear();
     m_themeName.clear();
+    m_pendingFolderScans.clear();
 
     const std::wstring path = ConfigPath();
     std::wstring text;
@@ -169,11 +226,60 @@ void Launcher::Load()
         if (f.size() >= 5) b.iconPath = f[4];
         if (b.label.empty() || b.target.empty()) { DebugSkip(lineNo, L"empty label/target", line); continue; }
 
+        if (b.action == ButtonAction::FolderFan)
+        {
+            // No filesystem access here (rule 5 — Load() runs on the UI thread). A cached
+            // root fills in immediately; an uncached one is queued for the host to scan on
+            // a worker thread and report back via ApplyFolderScan — folderEntries stays
+            // empty (and the button's fan just doesn't open yet) until then.
+            auto cached = m_folderFanCache.find(b.target);
+            if (cached != m_folderFanCache.end())
+            {
+                b.folderEntries = cached->second;
+            }
+            else if (std::find(m_pendingFolderScans.begin(), m_pendingFolderScans.end(), b.target)
+                     == m_pendingFolderScans.end())
+            {
+                m_pendingFolderScans.push_back(b.target);
+            }
+        }
+
         b.id = L"btn" + std::to_wstring(m_buttons.size());
         m_buttons.push_back(std::move(b));
     }
 
+    // Drop cache entries for roots no longer referenced by any FolderFan button — a config
+    // that edits a FolderFan target repeatedly would otherwise grow this map forever.
+    const std::vector<std::wstring> currentRoots = FolderFanRoots();
+    for (auto it = m_folderFanCache.begin(); it != m_folderFanCache.end(); )
+    {
+        if (std::find(currentRoots.begin(), currentRoots.end(), it->first) == currentRoots.end())
+            it = m_folderFanCache.erase(it);
+        else
+            ++it;
+    }
+
     DebugPrintf(L"[Launcher] loaded %zu button(s) from %s\n", m_buttons.size(), path.c_str());
+}
+
+std::vector<std::wstring> Launcher::FolderFanRoots() const
+{
+    std::vector<std::wstring> roots;
+    for (const Button& b : m_buttons)
+    {
+        if (b.action != ButtonAction::FolderFan) continue;
+        if (std::find(roots.begin(), roots.end(), b.target) == roots.end())
+            roots.push_back(b.target);
+    }
+    return roots;
+}
+
+void Launcher::ApplyFolderScan(const std::wstring& root, std::vector<std::wstring> entries)
+{
+    m_folderFanCache[root] = entries;
+    for (Button& b : m_buttons)
+        if (b.action == ButtonAction::FolderFan && b.target == root)
+            b.folderEntries = entries;
 }
 
 void Launcher::Execute(const Button& b) const
@@ -212,6 +318,10 @@ void Launcher::Execute(const Button& b) const
             }
             break;
         }
+        case ButtonAction::FolderFan:
+            // Picking a subfolder happens through the fan (LaunchFolder), not a direct
+            // click on the button itself — nothing to launch here.
+            break;
         }
         if (SUCCEEDED(hr)) CoUninitialize();
         TRACE_EVENT("LauncherAction",
@@ -219,4 +329,12 @@ void Launcher::Execute(const Button& b) const
             TraceLoggingInt64(trace::NowUs() - tStartUs, "duration_us"),
             TraceLoggingInt32(actionHr, "hr"));
     }).detach();
+}
+
+void Launcher::LaunchFolder(const std::wstring& folderPath) const
+{
+    // cmd /k keeps the tab alive once claude exits, dropping back to a normal
+    // prompt still cd'ed into folderPath (cmd, not the default wt profile, so
+    // this doesn't depend on whichever shell the user has set as default).
+    RunCommandWorker(L"wt.exe -d \"" + folderPath + L"\" cmd /k claude", L"folderfan");
 }

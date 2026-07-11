@@ -85,13 +85,14 @@ TaskbarOverlayWindow::~TaskbarOverlayWindow()
 
 bool TaskbarOverlayWindow::Create(HINSTANCE instance, const Launcher* launcher,
                                   const Store* store, HWND dockHwnd,
-                                  UINT chipClickMsg, UINT chipHoverMsg)
+                                  UINT chipClickMsg, UINT chipHoverMsg, UINT buttonHoverMsg)
 {
     m_launcher     = launcher;
     m_store        = store;
     m_dockHwnd     = dockHwnd;
     m_chipClickMsg = chipClickMsg;
     m_chipHoverMsg = chipHoverMsg;
+    m_buttonHoverMsg = buttonHoverMsg;
 
     WNDCLASSEXW wc = {};
     wc.cbSize        = sizeof(wc);
@@ -480,6 +481,14 @@ void TaskbarOverlayWindow::UpdateHover(HWND chip)
         PostMessageW(m_dockHwnd, m_chipHoverMsg, reinterpret_cast<WPARAM>(chip), 0);
 }
 
+void TaskbarOverlayWindow::UpdateButtonHover(int index)
+{
+    if (index == m_hoverButton) return;
+    m_hoverButton = index;
+    if (m_dockHwnd && m_buttonHoverMsg)
+        PostMessageW(m_dockHwnd, m_buttonHoverMsg, static_cast<WPARAM>(index), 0);
+}
+
 bool TaskbarOverlayWindow::ChipRectScreen(HWND hwnd, RECT* out) const
 {
     if (!m_store || !m_hwnd || !out) return false;
@@ -488,6 +497,22 @@ bool TaskbarOverlayWindow::ChipRectScreen(HWND hwnd, RECT* out) const
         if (c.hwnd != hwnd) continue;
         POINT tl = { c.rect.left,  c.rect.top };
         POINT br = { c.rect.right, c.rect.bottom };
+        ClientToScreen(m_hwnd, &tl);
+        ClientToScreen(m_hwnd, &br);
+        *out = { tl.x, tl.y, br.x, br.y };
+        return true;
+    }
+    return false;
+}
+
+bool TaskbarOverlayWindow::ButtonRectScreen(int index, RECT* out) const
+{
+    if (!m_store || !m_hwnd || !out) return false;
+    for (const Renderer::ButtonHit& b : ComputeGapLayout().buttons)
+    {
+        if (b.index != index) continue;
+        POINT tl = { b.rect.left,  b.rect.top };
+        POINT br = { b.rect.right, b.rect.bottom };
         ClientToScreen(m_hwnd, &tl);
         ClientToScreen(m_hwnd, &br);
         *out = { tl.x, tl.y, br.x, br.y };
@@ -550,11 +575,27 @@ LRESULT CALLBACK TaskbarOverlayWindow::StaticWndProc(HWND hwnd, UINT msg, WPARAM
             if (haveCur) ScreenToClient(hwnd, &cur);
             if (!self->m_store)
             {
-                if (haveCur) self->UpdateHover(nullptr);
+                if (haveCur) { self->UpdateHover(nullptr); self->UpdateButtonHover(-1); }
                 return HTTRANSPARENT;
             }
             const Renderer::GapLayout layout = self->ComputeGapLayout();
-            if (haveCur) self->UpdateHover(ChipHitOf(layout, cur));
+            if (haveCur)
+            {
+                const HWND curChip = ChipHitOf(layout, cur);
+                self->UpdateHover(curChip);
+                // A chip takes priority; a button only fan-hovers (FolderFan only —
+                // other actions have nothing to show in a fan) when no chip is hovered.
+                int fanButton = -1;
+                if (!curChip)
+                {
+                    const int curBtn = ButtonHitOf(layout, cur);
+                    const auto& buttons = self->Buttons();
+                    if (curBtn >= 0 && curBtn < static_cast<int>(buttons.size()) &&
+                        buttons[curBtn].action == ButtonAction::FolderFan)
+                        fanButton = curBtn;
+                }
+                self->UpdateButtonHover(fanButton);
+            }
             return (ChipHitOf(layout, pt) || ButtonHitOf(layout, pt) >= 0) ? HTCLIENT : HTTRANSPARENT;
         }
         case WM_LBUTTONUP:

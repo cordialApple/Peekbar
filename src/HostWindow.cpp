@@ -3,6 +3,7 @@
 #include "PaintUtil.h"
 #include "Trace.h"
 #include <algorithm>
+#include <thread>
 
 namespace
 {
@@ -21,6 +22,18 @@ namespace
     constexpr UINT    kTabActivateResultMsg = WM_APP + 8;  // TabReader worker → dock: activate outcome
     constexpr UINT    kChipHoverMsg     = WM_APP + 9;  // overlay → dock: hovered chip changed (HWND, or 0)
     constexpr UINT    kChipClickMsg     = WM_APP + 10; // overlay → dock: a chip was clicked (restore its window)
+    constexpr UINT    kButtonHoverMsg   = WM_APP + 12; // overlay → dock: hovered FolderFan button changed (index, or -1)
+    constexpr UINT    kFolderScanResultMsg = WM_APP + 13; // scan worker → dock: a FolderFan root's subfolders are ready
+    constexpr UINT    kFolderFanChangedMsg = WM_APP + 14; // any-change watcher → dock: a FolderFan root changed on disk
+    constexpr UINT_PTR kFolderFanScanTimer = 8;   // debounces a change-burst (e.g. a git clone) into one rescan per root
+    constexpr UINT    kFolderFanScanMs     = 400;
+
+    // kFolderScanResultMsg payload (owned by the receiver — delete after reading).
+    struct FolderScanResult
+    {
+        std::wstring               root;
+        std::vector<std::wstring>  entries;
+    };
     // In-place fullscreen (browser F11, video element, borderless game) keeps the same
     // foreground HWND, so it fires NO EVENT_SYSTEM_FOREGROUND — only its own rect change. A
     // set-once global LOCATIONCHANGE hook (see Create) catches it for zero-latency suppression;
@@ -165,12 +178,14 @@ bool HostWindow::Create(HINSTANCE instance)
 
     m_launcher.Load();  // Stage 5a: automation-button config
     Paint::SetActiveTheme(m_launcher.ThemeName());  // Stage D: skin from optional config `theme=`
+    RequestFolderScans();
+    RebuildFolderFanWatchers();
 
     // Stage 5b: host the automation buttons in the taskbar's empty gap. Measure now,
     // then re-measure on a low-frequency timer + on geometry-change events.
     m_taskbarOverlay = std::make_unique<TaskbarOverlayWindow>();
     if (m_taskbarOverlay->Create(instance, &m_launcher, &m_store, hwnd,
-                                 kChipClickMsg, kChipHoverMsg))
+                                 kChipClickMsg, kChipHoverMsg, kButtonHoverMsg))
     {
         if (m_fanPopup) m_taskbarOverlay->SetTopSibling(m_fanPopup->Hwnd());
         m_taskbarOverlay->RequestMeasure();
@@ -300,9 +315,74 @@ void HostWindow::ShowFanForChip(HWND chip)
 
     RECT r;
     if (!m_taskbarOverlay->ChipRectScreen(chip, &r)) return;
+    m_fannedButtonIndex = -1;
     m_fanPopup->CancelGrace();   // cursor is on a chip → keep the fan alive
-    m_fanPopup->Show(chip, it->second.tabs, r.left, r.right, r.top,
+    m_fanPopup->Show(FanFlavor::Tabs, chip, it->second.tabs, r.left, r.right, r.top,
                      GetDpiForWindow(m_taskbarOverlay->Hwnd()));
+}
+
+// Anchor the fan above a FolderFan automation button, same edge-adjacent scheme as
+// ShowFanForChip. Rows are the button's scanned subfolder names wrapped as Tab{name,
+// false} — FanPopup's Tabs-flavor paint path already renders a plain unhighlighted row.
+void HostWindow::ShowFanForButton(int buttonIndex)
+{
+    if (buttonIndex < 0 || !m_fanPopup || !m_taskbarOverlay) return;
+    const auto& buttons = m_launcher.Buttons();
+    if (buttonIndex >= static_cast<int>(buttons.size())) return;
+    const Button& b = buttons[buttonIndex];
+    if (b.action != ButtonAction::FolderFan || b.folderEntries.empty()) return;
+
+    RECT r;
+    if (!m_taskbarOverlay->ButtonRectScreen(buttonIndex, &r)) return;
+
+    std::vector<Tab> rows;
+    rows.reserve(b.folderEntries.size());
+    for (const std::wstring& name : b.folderEntries)
+        rows.push_back(Tab{ name, false });
+
+    m_fannedButtonIndex = buttonIndex;
+    m_fanPopup->CancelGrace();   // cursor is on the button → keep the fan alive
+    m_fanPopup->Show(FanFlavor::Folders, nullptr, rows, r.left, r.right, r.top,
+                     GetDpiForWindow(m_taskbarOverlay->Hwnd()));
+}
+
+void HostWindow::ScanRootAsync(const std::wstring& root)
+{
+    const HWND dock = m_hwnd;
+    std::thread([dock, root]() {
+        auto* result = new FolderScanResult{ root, Launcher::ScanImmediateSubfolders(root) };
+        if (!PostMessageW(dock, kFolderScanResultMsg, 0, reinterpret_cast<LPARAM>(result)))
+            delete result;
+    }).detach();
+}
+
+void HostWindow::RequestFolderScans()
+{
+    for (const std::wstring& root : m_launcher.PendingFolderScans())
+        ScanRootAsync(root);
+}
+
+void HostWindow::RebuildFolderFanWatchers()
+{
+    m_folderFanWatchers.clear();   // each dtor stops+joins its thread before the next Start
+    // Drop any change-notify still queued from an old watcher (e.g. one for a root just
+    // removed from config) — a stale rescan-of-nothing is harmless, but not worth doing.
+    KillTimer(m_hwnd, kFolderFanScanTimer);
+    m_pendingFolderFanRescans.clear();
+    for (const std::wstring& root : m_launcher.FolderFanRoots())
+    {
+        auto watcher = std::make_unique<ConfigWatcher>(m_hwnd, kFolderFanChangedMsg);
+        watcher->Start(root, L"");   // empty fileName = any-change mode
+        m_folderFanWatchers.push_back(std::move(watcher));
+    }
+}
+
+void HostWindow::QueueFolderFanRescan(const std::wstring& root)
+{
+    if (std::find(m_pendingFolderFanRescans.begin(), m_pendingFolderFanRescans.end(), root)
+            == m_pendingFolderFanRescans.end())
+        m_pendingFolderFanRescans.push_back(root);
+    SetTimer(m_hwnd, kFolderFanScanTimer, kFolderFanScanMs, nullptr);
 }
 
 LRESULT CALLBACK HostWindow::StaticWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -413,6 +493,7 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             KillTimer(hwnd, kOverlayTimer);
             KillTimer(hwnd, kSafetyTimer);
             KillTimer(hwnd, kSuppressTimer);
+            KillTimer(hwnd, kFolderFanScanTimer);
             PostQuitMessage(0);
         }
         return 0;
@@ -491,8 +572,15 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         else if (wparam == kConfigTimer)
         {
             KillTimer(hwnd, kConfigTimer);
+            // Reload rebuilds m_buttons from scratch — any button index a fan is currently
+            // showing may now refer to a different (or no) button. Close it rather than
+            // let a stale m_fannedButtonIndex resolve against the new vector.
+            if (m_fanPopup) m_fanPopup->Hide();
+            m_fannedButtonIndex = -1;
             m_launcher.Load();
             Paint::SetActiveTheme(m_launcher.ThemeName());  // live re-skin on config edit
+            RequestFolderScans();
+            RebuildFolderFanWatchers();
             // Re-measure: the new pill set may change which chips/pills fit the gap.
             if (m_taskbarOverlay)
             {
@@ -509,6 +597,13 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         {
             KillTimer(hwnd, kSuppressTimer);  // one-shot debounce for the fg-fullscreen resize burst
             UpdateOverlaySuppression();
+        }
+        else if (wparam == kFolderFanScanTimer)
+        {
+            KillTimer(hwnd, kFolderFanScanTimer);  // one-shot debounce for a change-burst (e.g. a git clone)
+            for (const std::wstring& root : m_pendingFolderFanRescans)
+                ScanRootAsync(root);
+            m_pendingFolderFanRescans.clear();
         }
         else if (wparam == kSafetyTimer)  // periodic; NOT killed here
         {
@@ -563,14 +658,47 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         RestoreWindow(reinterpret_cast<HWND>(wparam));
         return 0;
 
+    case kButtonHoverMsg:
+    {
+        // Hovered FolderFan button changed (only fires when no chip is hovered — see
+        // TaskbarOverlayWindow::WM_NCHITTEST). A real index → open the fan above that
+        // button; -1 (cursor left it) → grace-close, same bridge as the chip case.
+        const int idx = static_cast<int>(wparam);
+        if (idx >= 0)
+            ShowFanForButton(idx);
+        else if (m_fanPopup)
+            m_fanPopup->BeginGrace();
+        return 0;
+    }
+
+    case kFolderFanChangedMsg:
+    {
+        // A FolderFan root changed on disk (any-change ConfigWatcher). Coalesce a change
+        // burst (e.g. a git clone) into one rescan per root after a short quiet period.
+        std::unique_ptr<std::wstring> root(reinterpret_cast<std::wstring*>(lparam));
+        if (root)
+            QueueFolderFanRescan(*root);
+        else
+            SetTimer(hwnd, kFolderFanScanTimer, kFolderFanScanMs, nullptr);
+        return 0;
+    }
+
     case WM_HOTKEY:
         if (wparam == kQuitHotkeyId) DestroyWindow(hwnd);  // → WM_DESTROY teardown
         return 0;
 
     case WM_POWERBROADCAST:
         // Resume from sleep can leave a stale task-list rect; re-measure after a beat.
+        // Also a backstop for FolderFan freshness — a change-notify handle can miss events
+        // it slept through, so queue one rescan per root. Routed through the same debounce
+        // as kFolderFanChangedMsg: Windows can send this broadcast more than once per resume,
+        // and re-arming the one-shot timer coalesces that into a single rescan pass.
         if (wparam == PBT_APMRESUMEAUTOMATIC)
+        {
             SetTimer(hwnd, kOverlayTimer, kResumeRemeasureMs, nullptr);
+            for (const std::wstring& root : m_launcher.FolderFanRoots())
+                QueueFolderFanRescan(root);
+        }
         return TRUE;
 
     case kConfigChangedMsg:
@@ -605,27 +733,62 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         return 0;
     }
 
+    case kFolderScanResultMsg:
+    {
+        std::unique_ptr<FolderScanResult> result(reinterpret_cast<FolderScanResult*>(lparam));
+        if (result)
+        {
+            const std::wstring root = result->root;
+            m_launcher.ApplyFolderScan(root, std::move(result->entries));
+            // A fan already open on this exact root updates in place — no need to wait
+            // for the next hover to see a change that just landed.
+            if (m_fanPopup && m_fanPopup->Visible() && m_fannedButtonIndex >= 0)
+            {
+                const auto& buttons = m_launcher.Buttons();
+                if (m_fannedButtonIndex < static_cast<int>(buttons.size()) &&
+                    buttons[m_fannedButtonIndex].target == root)
+                    ShowFanForButton(m_fannedButtonIndex);
+            }
+        }
+        return 0;
+    }
+
     case kFanActivateMsg:
     {
-        // wparam = target browser HWND; lparam = FanActivateRequest* (owned here — delete
-        // below). Resolve the wanted title NOW (pre-restore Store state), then
-        // restore+foreground FIRST (R1: patterns on a background/iconic window are
-        // unreliable) and hand the worker a title to re-match against the post-restore tree.
+        // wparam = target browser HWND (Tabs flavor) or 0 (Folders); lparam =
+        // FanActivateRequest* (owned here — delete below).
         const HWND target = reinterpret_cast<HWND>(wparam);
         std::unique_ptr<FanActivateRequest> req(reinterpret_cast<FanActivateRequest*>(lparam));
-        const auto& all = m_store.All();
-        auto it = all.find(target);
-        if (req && it != all.end() && req->tabIndex >= 0 &&
-            req->tabIndex < static_cast<int>(it->second.tabs.size()))
+        if (req && req->flavor == FanFlavor::Folders)
         {
-            std::wstring wanted = it->second.tabs[req->tabIndex].title;
-            RestoreWindow(target);
-            const long long tRestore = trace::NowUs();   // C: restore/show issued
-            if (m_tabReader)
-                m_tabReader->RequestActivate(target, std::move(wanted), req->tabIndex,
-                                             req->tClickUs, tRestore);
+            const auto& buttons = m_launcher.Buttons();
+            if (m_fannedButtonIndex >= 0 && m_fannedButtonIndex < static_cast<int>(buttons.size()))
+            {
+                const Button& b = buttons[m_fannedButtonIndex];
+                if (b.action == ButtonAction::FolderFan &&
+                    req->rowIndex >= 0 && req->rowIndex < static_cast<int>(b.folderEntries.size()))
+                    m_launcher.LaunchFolder(b.target + L"\\" + b.folderEntries[req->rowIndex]);
+            }
         }
-        if (m_fanPopup) m_fanPopup->Hide();   // close on click (committed; window coming forward is the feedback)
+        else if (req)
+        {
+            // Tabs flavor. Resolve the wanted title NOW (pre-restore Store state), then
+            // restore+foreground FIRST (R1: patterns on a background/iconic window are
+            // unreliable) and hand the worker a title to re-match against the post-restore tree.
+            const auto& all = m_store.All();
+            auto it = all.find(target);
+            if (it != all.end() && req->rowIndex >= 0 &&
+                req->rowIndex < static_cast<int>(it->second.tabs.size()))
+            {
+                std::wstring wanted = it->second.tabs[req->rowIndex].title;
+                RestoreWindow(target);
+                const long long tRestore = trace::NowUs();   // C: restore/show issued
+                if (m_tabReader)
+                    m_tabReader->RequestActivate(target, std::move(wanted), req->rowIndex,
+                                                 req->tClickUs, tRestore);
+            }
+        }
+        if (m_fanPopup) m_fanPopup->Hide();   // close on click (committed; window/launch coming is the feedback)
         return 0;
     }
 
@@ -659,9 +822,11 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         KillTimer(hwnd, kOverlayTimer);
         KillTimer(hwnd, kSafetyTimer);
         KillTimer(hwnd, kSuppressTimer);
+        KillTimer(hwnd, kFolderFanScanTimer);
         UnregisterHotKey(hwnd, kQuitHotkeyId);
         // Then join every worker before unhooking (a worker post lands on s_dockHwnd).
         m_configWatcher.reset();
+        m_folderFanWatchers.clear();
         m_tabReader.reset();
         m_fanPopup.reset();
         m_taskbarOverlay.reset();

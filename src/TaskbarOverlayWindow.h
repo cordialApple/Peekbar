@@ -31,14 +31,19 @@ public:
     // store: read-only, UI-thread only (like m_launcher) — the measurement worker never
     // touches it. chipClickMsg: posted to dockHwnd (wparam = window HWND) on a chip click.
     // chipHoverMsg: posted to dockHwnd (wparam = hovered window HWND, or 0 on leave) as the
-    // hovered chip changes — the host opens/graces the fan.
+    // hovered chip changes — the host opens/graces the fan. buttonHoverMsg: posted the same
+    // way (wparam = hovered FolderFan button index, or -1) when no chip is hovered.
     bool Create(HINSTANCE instance, const Launcher* launcher, const Store* store,
-                HWND dockHwnd, UINT chipClickMsg, UINT chipHoverMsg);
+                HWND dockHwnd, UINT chipClickMsg, UINT chipHoverMsg, UINT buttonHoverMsg);
     void Destroy();
 
     // UI thread: screen rect of the chip for `hwnd` in the current layout, or false if it
     // isn't currently shown as a chip. The host anchors the fan above it.
     bool ChipRectScreen(HWND hwnd, RECT* out) const;
+
+    // UI thread: screen rect of the button at `index` in the current layout, or false if
+    // it isn't currently laid out. The host anchors the folder fan above it.
+    bool ButtonRectScreen(int index, RECT* out) const;
 
     // UI thread: the monitor the taskbar (and thus this overlay) lives on, or nullptr.
     // The hidden host is 1x1 at origin, so it can't source this itself (rule 6: taskbar
@@ -90,6 +95,7 @@ private:
     int  ButtonAt(POINT ptClient) const;
     HWND ChipAt(POINT ptClient) const;
     void UpdateHover(HWND chip);
+    void UpdateButtonHover(int index);
 
     const std::vector<Button>& Buttons() const;   // launcher's buttons, or empty
     Renderer::GapLayout ComputeGapLayout() const; // requires m_store
@@ -106,7 +112,9 @@ private:
     HWND            m_dockHwnd    = nullptr;
     UINT            m_chipClickMsg = 0;
     UINT            m_chipHoverMsg = 0;
+    UINT            m_buttonHoverMsg = 0;
     HWND            m_hoverChip   = nullptr;
+    int             m_hoverButton = -1;
     bool            m_mouseTracking = false;
     Gap             m_lastGap     = { {}, false };
     mutable HWND    m_uiTray      = nullptr;
