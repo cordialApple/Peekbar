@@ -703,9 +703,8 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
                 OutputDebugStringW(dbg);
             }
 #endif
-            if (payload->failed)
-                m_store.MarkTabsStale(payload->hwnd);
-            else
+            // Failed read: retain the last-known tabs rather than clobbering them.
+            if (!payload->failed)
                 m_store.SetTabs(payload->hwnd, std::move(payload->tabs));
             delete payload;
         }
@@ -780,23 +779,18 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         {
 #ifdef _DEBUG
             wchar_t dbg[256];
-            swprintf_s(dbg, L"[Activate] hwnd=%p outcome=%d matchedIndex=%d freshTabs=%d\n",
+            swprintf_s(dbg, L"[Activate] hwnd=%p outcome=%d matchedIndex=%d\n",
                        reinterpret_cast<void*>(payload->hwnd),
                        static_cast<int>(payload->outcome),
-                       payload->matchedIndex,
-                       static_cast<int>(payload->freshTabs.size()));
+                       payload->matchedIndex);
             OutputDebugStringW(dbg);
 #endif
-            // Keystroke path returns no freshTabs: advance the cached active index to the target.
-            // UIA-Select path still refreshes from its re-snapshot.
-            if (!payload->freshTabs.empty() && m_store.Has(payload->hwnd))
-                m_store.SetTabs(payload->hwnd, std::move(payload->freshTabs));
-            else if (payload->outcome == ActivateOutcome::Selected && payload->matchedIndex >= 0 &&
-                     m_store.Has(payload->hwnd))
+            // Keystroke hop writes the target index optimistically (never UIA-confirmed). Reconcile
+            // with a debounced snapshot that re-reads the true selection off the hot path, correcting
+            // the cache if the hop landed elsewhere.
+            if (payload->outcome == ActivateOutcome::Selected && payload->matchedIndex >= 0 &&
+                m_store.Has(payload->hwnd))
             {
-                // Keystroke path writes the target index optimistically (never UIA-confirmed).
-                // Reconcile: a debounced snapshot re-reads the true selection off the hot path,
-                // correcting the cache if the hop landed elsewhere.
                 m_store.SetActiveTab(payload->hwnd, payload->matchedIndex);
                 RequestSnapshotDebounced(payload->hwnd);
             }

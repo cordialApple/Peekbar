@@ -37,8 +37,7 @@ void Store::SetTabs(HWND hwnd, std::vector<Tab> tabs)
     auto it = m_windows.find(hwnd);
     if (it != m_windows.end())
     {
-        it->second.tabs      = std::move(tabs);
-        it->second.tabsStale = false;
+        it->second.tabs = std::move(tabs);
         TraceUpdate();
     }
 }
@@ -51,13 +50,6 @@ void Store::SetActiveTab(HWND hwnd, int index)
     if (index < 0 || index >= static_cast<int>(tabs.size())) return;
     for (auto& t : tabs) t.active = false;
     tabs[index].active = true;
-}
-
-void Store::MarkTabsStale(HWND hwnd)
-{
-    auto it = m_windows.find(hwnd);
-    if (it != m_windows.end())
-        it->second.tabsStale = true;
 }
 
 void Store::Remove(HWND hwnd)

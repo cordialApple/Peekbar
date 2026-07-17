@@ -4,13 +4,10 @@
 #include <string>
 #include <vector>
 
-enum class ButtonStyle  { Pill, Icon };
 enum class ButtonAction { Url, Shortcut, Command, FolderFan };
 
 struct Button {
-    ButtonStyle  style  = ButtonStyle::Pill;
     std::wstring label;
-    std::wstring iconPath;
     ButtonAction action = ButtonAction::Url;
     std::wstring target;
     // FolderFan only: empty until worker-thread scan completes (Load() never blocks on filesystem)
@@ -19,7 +16,7 @@ struct Button {
 
 // Owns the automation-button config (CLAUDE.md: Launcher component, Stage 5).
 // Minimum-functionality config is a line-based text file (hard rule 2 — no JSON
-// dependency); one button per line: style|label|action|target|iconPath(optional).
+// dependency); one button per line: style|label|action|target.
 // Blank lines and lines starting with '#' or ';' are ignored. Malformed lines are
 // skipped with an OutputDebugStringW note; a missing file yields zero buttons.
 class Launcher

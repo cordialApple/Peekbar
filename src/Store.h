@@ -14,7 +14,6 @@ struct TrackedWindow {
     std::wstring     title;
     bool             minimized = false;
     std::vector<Tab> tabs;
-    bool             tabsStale = false;
 };
 
 class Store
@@ -24,7 +23,6 @@ public:
     void SetMinimized(HWND hwnd, bool minimized);
     void SetTabs(HWND hwnd, std::vector<Tab> tabs);
     void SetActiveTab(HWND hwnd, int index);
-    void MarkTabsStale(HWND hwnd);
     void Remove(HWND hwnd);
     bool Has(HWND hwnd) const;
 

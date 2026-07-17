@@ -65,11 +65,9 @@ namespace
         return true;
     }
 
-    bool ParseStyle(const std::wstring& s, ButtonStyle& out)
+    bool IsStyleToken(const std::wstring& s)
     {
-        if (s == L"pill") { out = ButtonStyle::Pill; return true; }
-        if (s == L"icon") { out = ButtonStyle::Icon; return true; }
-        return false;
+        return s == L"pill" || s == L"icon";
     }
 
     bool ParseAction(const std::wstring& s, ButtonAction& out)
@@ -214,11 +212,10 @@ void Launcher::Load()
         if (f.size() < 4) { DebugSkip(lineNo, L"need style|label|action|target", line); continue; }
 
         Button b;
-        if (!ParseStyle(f[0], b.style))   { DebugSkip(lineNo, L"bad style",  line); continue; }
+        if (!IsStyleToken(f[0]))          { DebugSkip(lineNo, L"bad style",  line); continue; }
         b.label = f[1];
         if (!ParseAction(f[2], b.action)) { DebugSkip(lineNo, L"bad action", line); continue; }
         b.target = f[3];
-        if (f.size() >= 5) b.iconPath = f[4];
         if (b.label.empty() || b.target.empty()) { DebugSkip(lineNo, L"empty label/target", line); continue; }
 
         if (b.action == ButtonAction::FolderFan)

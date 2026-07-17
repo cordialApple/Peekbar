@@ -4,9 +4,9 @@
 # Edit it any time; Peekbar hot-reloads within about a second, no restart.
 #
 # One button per line:
-#   style|label|action|target|iconPath(optional)
+#   style|label|action|target
 #
-#   style   pill | icon        (icon rendering is not wired yet — use pill)
+#   style   pill        (icon accepted for back-compat but renders as a pill)
 #   action  url | shortcut | command | folderfan
 #   target  a URL, a .lnk/.exe path, a command line, or a folder root
 #

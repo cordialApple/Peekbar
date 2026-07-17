@@ -18,13 +18,12 @@ struct TabSnapshot {
     bool             failed = false;
 };
 
-enum class ActivateOutcome { Selected, NoMatch, PatternUnavailable, Failed };
+enum class ActivateOutcome { Selected, Failed };
 
 struct TabActivateResult {
-    HWND             hwnd;
-    ActivateOutcome  outcome = ActivateOutcome::Failed;
-    int              matchedIndex = -1;
-    std::vector<Tab> freshTabs;
+    HWND            hwnd;
+    ActivateOutcome outcome = ActivateOutcome::Failed;
+    int             matchedIndex = -1;
 };
 
 // All UIA tree-shape assumptions live in TabReader.cpp only (CLAUDE.md rule 6).
@@ -38,8 +37,6 @@ public:
     TabReader& operator=(const TabReader&) = delete;
 
     void RequestSnapshot(HWND hwnd);
-    void RequestActivate(HWND hwnd, std::wstring wantedTitle, int fallbackIndex,
-                         long long tClickUs, long long tRestoreUs);
     void RequestKeystrokeHop(HWND hwnd, int activeIndex, int targetIndex, int tabCount,
                              long long tClickUs, long long tRestoreUs);
 
@@ -47,18 +44,16 @@ public:
     void NotifyForeground();
 
 private:
-    enum class ReqKind { Snapshot, Activate, KeystrokeHop };
+    enum class ReqKind { Snapshot, KeystrokeHop };
     struct Request {
-        ReqKind      kind;
-        HWND         hwnd;
-        std::wstring wantedTitle;
-        int          fallbackIndex = 0;
-        long long    tClickUs      = 0;
-        long long    tRestoreUs    = 0;
-        int          targetIndex   = 0;
-        int          tabCount      = 0;
-        int          activeIndex   = 0;
-        uint64_t     gen           = 0;   // hop generation; worker abandons if a newer hop supersedes it
+        ReqKind   kind;
+        HWND      hwnd;
+        long long tClickUs    = 0;
+        long long tRestoreUs  = 0;
+        int       targetIndex = 0;
+        int       tabCount    = 0;
+        int       activeIndex = 0;
+        uint64_t  gen         = 0;   // hop generation; worker abandons if a newer hop supersedes it
     };
 
     void WorkerLoop();
