@@ -23,6 +23,7 @@ public:
     void Set(HWND hwnd, std::wstring title);
     void SetMinimized(HWND hwnd, bool minimized);
     void SetTabs(HWND hwnd, std::vector<Tab> tabs);
+    void SetActiveTab(HWND hwnd, int index);
     void MarkTabsStale(HWND hwnd);
     void Remove(HWND hwnd);
     bool Has(HWND hwnd) const;

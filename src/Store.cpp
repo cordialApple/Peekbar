@@ -43,6 +43,16 @@ void Store::SetTabs(HWND hwnd, std::vector<Tab> tabs)
     }
 }
 
+void Store::SetActiveTab(HWND hwnd, int index)
+{
+    auto it = m_windows.find(hwnd);
+    if (it == m_windows.end()) return;
+    auto& tabs = it->second.tabs;
+    if (index < 0 || index >= static_cast<int>(tabs.size())) return;
+    for (auto& t : tabs) t.active = false;
+    tabs[index].active = true;
+}
+
 void Store::MarkTabsStale(HWND hwnd)
 {
     auto it = m_windows.find(hwnd);

@@ -738,18 +738,20 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         }
         else if (req)
         {
-            // Tabs flavor: resolve title NOW (pre-restore), restore+foreground FIRST (R1: patterns on background/iconic unreliable), hand worker title to re-match post-restore tree.
+            // Tabs flavor (exp/keystroke-jump-absolute): pure cache->keystroke, ABSOLUTE jump.
+            // Restore+foreground FIRST, then let the worker send a single Ctrl+digit (Ctrl+1..8 /
+            // Ctrl+9=last) straight to the target tab. No UIA walk/Select, no distance loop.
             const auto& all = m_store.All();
             auto it = all.find(target);
             if (it != all.end() && req->rowIndex >= 0 &&
                 req->rowIndex < static_cast<int>(it->second.tabs.size()))
             {
-                std::wstring wanted = it->second.tabs[req->rowIndex].title;
+                const int tabCount = static_cast<int>(it->second.tabs.size());
                 RestoreWindow(target);
                 const long long tRestore = trace::NowUs();   // C: restore/show issued
                 if (m_tabReader)
-                    m_tabReader->RequestActivate(target, std::move(wanted), req->rowIndex,
-                                                 req->tClickUs, tRestore);
+                    m_tabReader->RequestKeystrokeJump(target, req->rowIndex, tabCount,
+                                                      req->tClickUs, tRestore);
             }
         }
         if (m_fanPopup) m_fanPopup->Hide();   // Close on click (window/launch is the feedback)
@@ -770,9 +772,13 @@ LRESULT HostWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
                        static_cast<int>(payload->freshTabs.size()));
             OutputDebugStringW(dbg);
 #endif
-            // Refresh fan from worker's re-snapshot.
+            // Keystroke path returns no freshTabs: advance the cached active index to the target.
+            // UIA-Select path still refreshes from its re-snapshot.
             if (!payload->freshTabs.empty() && m_store.Has(payload->hwnd))
                 m_store.SetTabs(payload->hwnd, std::move(payload->freshTabs));
+            else if (payload->outcome == ActivateOutcome::Selected && payload->matchedIndex >= 0 &&
+                     m_store.Has(payload->hwnd))
+                m_store.SetActiveTab(payload->hwnd, payload->matchedIndex);
             delete payload;
         }
         return 0;

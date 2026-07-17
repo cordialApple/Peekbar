@@ -39,9 +39,11 @@ public:
     void RequestSnapshot(HWND hwnd);
     void RequestActivate(HWND hwnd, std::wstring wantedTitle, int fallbackIndex,
                          long long tClickUs, long long tRestoreUs);
+    void RequestKeystrokeJump(HWND hwnd, int targetIndex, int tabCount,
+                              long long tClickUs, long long tRestoreUs);
 
 private:
-    enum class ReqKind { Snapshot, Activate };
+    enum class ReqKind { Snapshot, Activate, KeystrokeJump };
     struct Request {
         ReqKind      kind;
         HWND         hwnd;
@@ -49,6 +51,8 @@ private:
         int          fallbackIndex = 0;
         long long    tClickUs      = 0;
         long long    tRestoreUs    = 0;
+        int          targetIndex   = 0;
+        int          tabCount      = 0;
     };
 
     void WorkerLoop();
