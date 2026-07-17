@@ -7,7 +7,7 @@ if(NOT DEFINED PROJECT_NAME)
     project(shell_profiler LANGUAGES CXX)
 endif()
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Console executable. Shares ZERO source with the shell (hard rule 8); the only
