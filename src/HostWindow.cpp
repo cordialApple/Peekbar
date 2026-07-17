@@ -291,11 +291,6 @@ void HostWindow::RequestSnapshotDebounced(HWND hwnd)
 void HostWindow::RestoreWindow(HWND target)
 {
     if (!target) return;
-    // Kill the minimize-restore animation on this window so it snaps up: the keystroke readiness
-    // gate (foreground==target) then clears in ~one frame instead of waiting out the ~90ms DWM
-    // transition. Persists on the window; a fast switcher wants snappy, not animated.
-    const BOOL disable = TRUE;
-    DwmSetWindowAttribute(target, DWMWA_TRANSITIONS_FORCEDISABLED, &disable, sizeof(disable));
     ShowWindowAsync(target, SW_RESTORE);
     if (!SetForegroundWindow(target))
     {
