@@ -1,0 +1,30 @@
+# Peekbar config — automation buttons shown in the taskbar's empty gap.
+#
+# Copy this file to:  %LOCALAPPDATA%\Peekbar\config.txt
+# Edit it any time; Peekbar hot-reloads within about a second, no restart.
+#
+# One button per line:
+#   style|label|action|target|iconPath(optional)
+#
+#   style   pill | icon        (icon rendering is not wired yet — use pill)
+#   action  url | shortcut | command | folderfan
+#   target  a URL, a .lnk/.exe path, a command line, or a folder root
+#
+# Lines starting with # or ; are ignored. Malformed lines are skipped.
+#
+# Optional theme line (pick one): slate | matte | steel | azure
+theme=azure
+
+# Open sites in your default browser:
+pill|Gmail|url|https://mail.google.com
+pill|GitHub|url|https://github.com
+
+# Launch a local shortcut or executable:
+# pill|Notepad|shortcut|C:\Windows\System32\notepad.exe
+
+# Run a command line:
+# pill|Update|command|cmd /k winget upgrade --all
+
+# FolderFan: hover to fan out the immediate subfolders of a root; clicking a
+# row opens that folder in Windows Terminal running "cmd /k claude".
+# pill|Projects|folderfan|C:\Users\you\Documents\GitHub

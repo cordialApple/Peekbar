@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(peekbar LANGUAGES CXX)
+project(peekbar VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,3 +31,20 @@ target_link_libraries(peekbar PRIVATE shell32 user32 gdi32 msimg32 ole32 oleaut3
 # Decoupled observability tool: separate target, no shared code, never linked
 # into the shell. One repo, two targets — see docs/profiler-project-structure.md.
 add_subdirectory(profiler)
+
+# --- User distributable (CPack ZIP) ------------------------------------------
+# Only peekbar has install() rules, so the ZIP ships the shell exe + docs only;
+# shell_profiler is never bundled (hard rule 8).
+install(TARGETS peekbar RUNTIME DESTINATION .)
+install(FILES
+    packaging/README.txt
+    packaging/config.sample.txt
+    DESTINATION .
+)
+set(CPACK_GENERATOR "ZIP")
+set(CPACK_PACKAGE_NAME "Peekbar")
+set(CPACK_PACKAGE_VENDOR "Peekbar")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_FILE_NAME "Peekbar-${PROJECT_VERSION}-win64")
+set(CPACK_PACKAGE_DIRECTORY "${CMAKE_BINARY_DIR}/dist")
+include(CPack)
