@@ -39,7 +39,33 @@ processes, and never talks to the network. Full breakdown: [`SECURITY.md`](SECUR
 
 ## Install
 
-No prebuilt releases yet: build from source.
+### Grab the ZIP and run
+
+Build the distributable once, then it's just unzip-and-run — no installer, no
+admin rights, no dependencies:
+
+```
+cmake -B build -G "Visual Studio 17 2022"
+cmake --build build --config Release
+cpack --config build/CPackConfig.cmake -G ZIP   # -> build/dist/Peekbar-1.0.0-win64.zip
+```
+
+Unzip anywhere and double-click `peekbar.exe`. It runs as a hidden coordinator
+window, draws its strip in the taskbar gap, and has no taskbar button of its
+own. Stop it by ending `peekbar.exe` from Task Manager.
+
+**Start at logon (optional).** From the unzipped folder:
+
+```
+powershell -ExecutionPolicy Bypass -File .\install.ps1     # copy to %LOCALAPPDATA%\Peekbar + HKCU autostart
+powershell -ExecutionPolicy Bypass -File .\uninstall.ps1   # undo (per-user only, no admin)
+```
+
+Autostart is per-user (HKCU `...\CurrentVersion\Run`) — nothing system-wide,
+nothing that needs elevation. The in-zip `README.txt` has the full quickstart
+and `config.sample.txt` documents the launcher-button format.
+
+### Build from source
 
 **Prerequisites:** Windows 10/11 x64, Visual Studio 2022 (Desktop development
 with C++ workload) or Build Tools + CMake ≥ 3.20.
@@ -50,14 +76,11 @@ cmake --build build --config Release
 build\Release\peekbar.exe
 ```
 
-The tool runs as a hidden coordinator window. It draws its dock strip in the
-taskbar's gap area and exits cleanly when killed from Task Manager. There's no
-installer and nothing is written outside the build folder; delete the `.exe`
-to remove it.
+Nothing is written outside the build folder; delete the `.exe` to remove it.
 
 ## Stack
 
-- **C++17 / Win32**
+- **C++23 / Win32**
 - **UI Automation** for reading tab titles (self-contained; no browser
   extension required).
 - Per-monitor DPI aware.
