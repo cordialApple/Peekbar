@@ -41,18 +41,14 @@ processes, and never talks to the network. Full breakdown: [`SECURITY.md`](SECUR
 
 ### Grab the ZIP and run
 
-Build the distributable once, then it's just unzip-and-run: no installer, no
-admin rights, no dependencies:
+Download the latest release, unzip anywhere, and double-click `peekbar.exe`. No
+installer, no admin rights, no dependencies.
 
-```
-cmake -B build -G "Visual Studio 17 2022"
-cmake --build build --config Release
-cpack --config build/CPackConfig.cmake -G ZIP   # -> build/dist/Peekbar-1.0.0-win64.zip
-```
+**[Download Peekbar 1.0.0](https://github.com/cordialApple/Peekbar/releases/latest)** (`Peekbar-1.0.0-win64.zip`, ~73 KB)
 
-Unzip anywhere and double-click `peekbar.exe`. It runs as a hidden coordinator
-window, draws its strip in the taskbar gap, and has no taskbar button of its
-own. Stop it by ending `peekbar.exe` from Task Manager.
+It runs as a hidden coordinator window, draws its strip in the taskbar gap, and
+has no taskbar button of its own. Stop it by right-clicking any chip or pill, by
+`Ctrl+Alt+Shift+Q`, or by ending `peekbar.exe` from Task Manager.
 
 **Start at logon (optional).** From the unzipped folder:
 
@@ -76,7 +72,9 @@ cmake --build build --config Release
 build\Release\peekbar.exe
 ```
 
-Nothing is written outside the build folder; delete the `.exe` to remove it.
+Nothing is written outside the build folder; delete the `.exe` to remove it. To
+produce the release ZIP yourself: `cpack --config build/CPackConfig.cmake -G ZIP`
+(outputs `build/dist/Peekbar-1.0.0-win64.zip`).
 
 ## Stack
 
