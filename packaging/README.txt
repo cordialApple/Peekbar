@@ -26,8 +26,11 @@ from Task Manager (Ctrl+Shift+Esc).
 
 Add launcher buttons (optional)
 -------------------------------
+Your buttons live in a text file at  %LOCALAPPDATA%\Peekbar\config.txt
+
 1. Create the folder:  %LOCALAPPDATA%\Peekbar
    (paste that path into the File Explorer address bar).
+   If you ran install.ps1, this folder already holds config.sample.txt.
 2. Copy config.sample.txt into it and rename the copy to  config.txt
 3. Edit config.txt — see the comments inside for the line format. Peekbar
    hot-reloads within about a second; no restart needed.

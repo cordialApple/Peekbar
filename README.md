@@ -39,7 +39,7 @@ processes, and never talks to the network. Full breakdown: [`SECURITY.md`](SECUR
 Download the latest release, unzip anywhere, and double-click `peekbar.exe`. No
 installer, no admin rights, no dependencies.
 
-**[Download Peekbar 1.0.0](https://github.com/cordialApple/Peekbar/releases/latest)** (`Peekbar-1.0.0-win64.zip`, ~73 KB)
+**[Download Peekbar 1.0.1](https://github.com/cordialApple/Peekbar/releases/latest)** (`Peekbar-1.0.1-win64.zip`, ~73 KB)
 
 It runs as a hidden coordinator window, draws its strip in the taskbar gap, and
 has no taskbar button of its own. Stop it by right-clicking any chip or pill, by
@@ -56,6 +56,23 @@ Autostart is per-user (HKCU `...\CurrentVersion\Run`), nothing system-wide,
 nothing that needs elevation. The in-zip `README.txt` has the full quickstart
 and `config.sample.txt` documents the launcher-button format.
 
+### Launcher buttons (config)
+
+Your buttons live in a text file at:
+
+```
+%LOCALAPPDATA%\Peekbar\config.txt
+```
+
+Paste that folder path into the File Explorer address bar, copy
+`config.sample.txt` into it, and rename the copy to `config.txt`. If you ran
+`install.ps1`, the sample is already sitting in that folder for you. Edit
+`config.txt` and Peekbar hot-reloads within about a second, no restart.
+
+One button per line, `style|label|action|target` (`action` is
+`url | shortcut | command | folderfan`); an optional `theme=` line picks the
+color scheme. The sample file documents every field with examples.
+
 ### Build from source
 
 **Prerequisites:** Windows 10/11 x64, Visual Studio 2022 (Desktop development
@@ -69,7 +86,7 @@ build\Release\peekbar.exe
 
 Nothing is written outside the build folder; delete the `.exe` to remove it. To
 produce the release ZIP yourself: `cpack --config build/CPackConfig.cmake -G ZIP`
-(outputs `build/dist/Peekbar-1.0.0-win64.zip`).
+(outputs `build/dist/Peekbar-1.0.1-win64.zip`).
 
 ## Stack
 
