@@ -14,6 +14,7 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [string]$Source = (Join-Path $PSScriptRoot 'peekbar.exe'),
+    [string]$SampleConfig = (Join-Path $PSScriptRoot 'config.sample.txt'),
     [switch]$NoAutostart
 )
 
@@ -31,6 +32,16 @@ if ($PSCmdlet.ShouldProcess($installDir, 'Create install dir and copy peekbar.ex
     New-Item -ItemType Directory -Force -Path $installDir | Out-Null
     Copy-Item -LiteralPath $Source -Destination $target -Force
     Write-Host "Installed peekbar.exe to $target"
+}
+
+if (Test-Path -LiteralPath $SampleConfig) {
+    $sampleTarget = Join-Path $installDir 'config.sample.txt'
+    if ($PSCmdlet.ShouldProcess($sampleTarget, 'Copy config.sample.txt next to the exe')) {
+        Copy-Item -LiteralPath $SampleConfig -Destination $sampleTarget -Force
+        Write-Host "Copied config.sample.txt to $sampleTarget (copy it to config.txt to add buttons)."
+    }
+} else {
+    Write-Host "config.sample.txt not found at '$SampleConfig'; skipped seeding the sample."
 }
 
 if (-not $NoAutostart) {
